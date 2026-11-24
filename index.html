@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>APEX 9R — Showroom</title>
+  <meta name="description" content="An original 3D supercar you can unlock, start and rev from your phone." />
+  <meta name="theme-color" content="#07080b" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2307080b'/%3E%3Cpath d='M7 22 16 8l9 14h-4l-5-8-5 8z' fill='%23fff'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/showroom.css" />
+  <script type="importmap">
+  { "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  } }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js" defer></script>
+</head>
+<body>
+  <canvas id="scene"></canvas>
+  <div class="letterbox top"></div><div class="letterbox bottom"></div>
+
+  <!-- splash: one click unlocks audio -->
+  <div id="splash">
+    <div class="splash-inner">
+      <div class="brand-lg">APEX<span>9R</span></div>
+      <p class="splash-sub">Original concept · real-time engine sound · your phone is the key</p>
+      <button id="enter" class="btn-primary" disabled>Loading…</button>
+      <button id="enter-mute" class="link-btn">Enter without sound</button>
+    </div>
+  </div>
+
+  <header class="top">
+    <div class="model">APEX 9R <small>GT</small></div>
+    <nav class="tabs" role="tablist">
+      <button data-tab="drive" class="active">Drive</button>
+      <button data-tab="body">Body</button>
+      <button data-tab="paint">Paint</button>
+      <button data-tab="key">Key</button>
+    </nav>
+    <div class="top-right">
+      <button id="film" class="chip">Film mode</button>
+      <button id="sound" class="chip">Sound off</button>
+    </div>
+  </header>
+
+  <!-- panels -->
+  <aside class="panel" id="panel-drive">
+    <h3>Drive</h3>
+    <div class="grid-btns">
+      <button data-cmd="unlock">Unlock <kbd>U</kbd></button>
+      <button data-cmd="lock">Lock <kbd>K</kbd></button>
+      <button data-cmd="doors">Doors <kbd>D</kbd></button>
+      <button data-cmd="lights">Lights <kbd>L</kbd></button>
+      <button data-cmd="engine">Engine <kbd>E</kbd></button>
+      <button data-cmd="launch">Launch <kbd>X</kbd></button>
+    </div>
+    <p class="muted">Hold <kbd>Space</kbd> or <kbd>W</kbd> to rev. <kbd>H</kbd> horn, <kbd>F</kbd> film mode. Drag to orbit, scroll to zoom.</p>
+  </aside>
+  <aside class="panel" id="panel-body">
+    <h3>Body</h3>
+    <label class="row"><span>Swan-neck wing</span><input type="checkbox" id="opt-wing" checked /></label>
+    <label class="row"><span>Centre stripe</span><input type="checkbox" id="opt-livery" checked /></label>
+    <div class="row"><span>Wheels</span>
+      <div class="swatches small" id="rims">
+        <button style="--c:#1a1b1f" data-rim="#1a1b1f" class="on" title="Satin black"></button>
+        <button style="--c:#b9bcc4" data-rim="#b9bcc4" title="Silver"></button>
+        <button style="--c:#c9a24a" data-rim="#c9a24a" title="Gold"></button>
+        <button style="--c:#e8e8ea" data-rim="#e8e8ea" title="White"></button>
+      </div>
+    </div>
+  </aside>
+  <aside class="panel" id="panel-paint">
+    <h3>Paint</h3>
+    <div class="swatches" id="paints"></div>
+    <p class="muted" id="paint-name">Voltage Blue</p>
+  </aside>
+  <aside class="panel" id="panel-key">
+    <h3>Phone key</h3>
+    <div class="pair">
+      <div id="qr" class="qr"></div>
+      <div>
+        <p>Scan with your phone camera, or open<br><a id="remote-link" target="_blank" rel="noopener"></a></p>
+        <p class="code-line">Code <b id="code">·····</b></p>
+        <p class="muted" id="link-status">Starting link…</p>
+      </div>
+    </div>
+  </aside>
+
+  <!-- hero status -->
+  <section class="hero">
+    <h1 id="status">Locked.</h1>
+    <p id="hint">Scan the code with your phone to get the key, then unlock the car.</p>
+    <div class="key-chip" id="key-chip"><i></i><span>No key connected</span></div>
+  </section>
+
+  <!-- gauge -->
+  <section class="gauge" id="gauge">
+    <svg viewBox="0 0 220 220" id="gauge-svg"></svg>
+    <div class="g-read">
+      <div class="g-gear" id="gear">N</div>
+      <div class="g-rpm"><b id="rpm">0</b> rpm</div>
+      <div class="g-speed"><b id="speed">0</b> km/h</div>
+    </div>
+    <div class="g-t100" id="t100"></div>
+  </section>
+
+  <div id="countdown"></div>
+  <div id="toast"></div>
+
+  <footer class="foot">Original concept vehicle, designed in code · not affiliated with or endorsed by any manufacturer · engine sound synthesized live</footer>
+
+  <script type="module" src="js/showroom.js"></script>
+</body>
+</html>
