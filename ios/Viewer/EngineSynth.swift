@@ -8,30 +8,35 @@ import UIKit
 //   + intake noise + high-rpm scream, + one-shot voices (pops, starter, chirps…).
 // Loudness rises ~20 dB from idle to redline, ~10 dB more under throttle.
 
+/// RBJ biquad. Coefficients and state are Double: at very low centre frequencies a Float
+/// biquad's poles sit so close to 1 that rounding makes it blow up to Inf/NaN within seconds.
 private struct Biquad {
-    var b0: Float = 1, b1: Float = 0, b2: Float = 0, a1: Float = 0, a2: Float = 0
-    var z1: Float = 0, z2: Float = 0
+    var b0 = 1.0, b1 = 0.0, b2 = 0.0, a1 = 0.0, a2 = 0.0
+    var z1 = 0.0, z2 = 0.0
 
     mutating func lowpass(_ f: Float, _ q: Float, _ sr: Float) {
-        let w = 2 * Float.pi * min(f, sr * 0.45) / sr
-        let c = cos(w), al = sin(w) / (2 * q), a0 = 1 + al
+        let w = 2 * Double.pi * Double(max(20, min(f, sr * 0.45))) / Double(sr)
+        let c = cos(w), al = sin(w) / (2 * Double(q)), a0 = 1 + al
         b0 = (1 - c) / 2 / a0; b1 = (1 - c) / a0; b2 = b0
         a1 = -2 * c / a0; a2 = (1 - al) / a0
     }
 
     mutating func bandpass(_ f: Float, _ q: Float, _ sr: Float) {
-        let w = 2 * Float.pi * min(f, sr * 0.45) / sr
-        let c = cos(w), al = sin(w) / (2 * q), a0 = 1 + al
+        let w = 2 * Double.pi * Double(max(20, min(f, sr * 0.45))) / Double(sr)
+        let c = cos(w), al = sin(w) / (2 * Double(q)), a0 = 1 + al
         b0 = al / a0; b1 = 0; b2 = -al / a0
         a1 = -2 * c / a0; a2 = (1 - al) / a0
     }
 
-    mutating func process(_ x: Float) -> Float {
+    mutating func process(_ xf: Float) -> Float {
+        let x = Double(xf)
         let y = b0 * x + z1
         z1 = b1 * x - a1 * y + z2
         z2 = b2 * x - a2 * y
-        return y
+        return Float(y)
     }
+
+    mutating func reset() { z1 = 0; z2 = 0 }
 }
 
 private struct Voice {
@@ -223,6 +228,9 @@ final class EngineSynth {
         for car in CarSpec.all {
           setCharacter(car.engine)
           out.append("[\(car.id)]")
+          // engine off for ~12 s first: this is what used to poison the filters on devices
+          rpm = 0; load = 0; on = false
+          for _ in 0..<141 { _ = try? engine.renderOffline(4096, to: buf) }
           let lim = Int(car.engine.limit)
           for (r, l) in [(max(1000, Int(car.engine.idle)), 0), (lim / 3, 1), (lim * 2 / 3, 1), (lim, 1)] {
             rpm = Float(r); load = Float(l); on = true
@@ -287,6 +295,15 @@ final class EngineSynth {
 
     // MARK: audio thread
 
+    /// Recover from a bad sample (audio thread).
+    private func resetDSP() {
+        tone.reset(); intake.reset(); scream.reset(); evBP.reset()
+        for j in voices.indices { voices[j].filter.reset(); voices[j].filter2.reset() }
+        if !volS.isFinite { volS = 0 }
+        if !rpmS.isFinite { rpmS = 0 }
+        if !loadS.isFinite { loadS = 0 }
+    }
+
     @inline(__always) private func noise() -> Float {
         rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5
         return Float(rng) / Float(UInt32.max) * 2 - 1
@@ -323,7 +340,7 @@ final class EngineSynth {
             if counter & 31 == 0 {
                 tone.lowpass(260 + r * 2600 + loadS * 1700, 1.4, sr)
                 intake.bandpass(500 + crank * 9, 1.8, sr)
-                scream.bandpass(crank * fire * 2, 3, sr)
+                scream.bandpass(max(80, crank * fire * 2), 3, sr)
                 evBP.bandpass(600 + crank * 9, 6, sr)
             }
             counter &+= 1
@@ -343,6 +360,7 @@ final class EngineSynth {
                 volS += (ev - volS) * k
                 var o = whine * volS + voicesSample(dt)
                 o = tanh(o * masterS * 1.1)
+                if !o.isFinite { resetDSP(); o = 0 }
                 L[i] = o; R?[i] = o
                 continue
             }
@@ -366,6 +384,7 @@ final class EngineSynth {
 
             out += voicesSample(dt)
             out = tanh(out * masterS * 1.1)
+            if !out.isFinite { resetDSP(); out = 0 }
 
             L[i] = out
             R?[i] = out
