@@ -297,14 +297,20 @@ struct ShiftLights: View {
             let flash = rpm > 8800 && Int(ctx.date.timeIntervalSinceReferenceDate * 14) % 2 == 0
             HStack(spacing: 5) {
                 ForEach(0..<10, id: \.self) { i in
-                    let c: Color = flash ? Color(red: 0.31, green: 0.55, blue: 1)
-                        : i >= n ? Color.white.opacity(0.07)
-                        : i < 4 ? Color.green : i < 7 ? Color.yellow : red
-                    Capsule().fill(c).frame(height: 8).shadow(color: (flash || i < n) ? c : .clear, radius: 4)
+                    let c = ledColor(i, lit: n, flash: flash)
+                    Capsule().fill(c).frame(height: 8).shadow(color: (flash || i < n) ? c : Color.clear, radius: 4)
                 }
             }
         }
     }
+}
+
+private func ledColor(_ i: Int, lit n: Int, flash: Bool) -> Color {
+    if flash { return Color(red: 0.31, green: 0.55, blue: 1) }
+    if i >= n { return Color.white.opacity(0.07) }
+    if i < 4 { return Color.green }
+    if i < 7 { return Color.yellow }
+    return red
 }
 
 struct HoldButton: View {
