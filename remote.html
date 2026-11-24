@@ -44,8 +44,17 @@
   <main id="key" hidden>
     <header>
       <div class="brand">APEX 9R <small>GT</small></div>
-      <div class="conn" id="conn"><i></i><span>Connecting…</span></div>
+      <div class="hdr-right">
+        <div class="conn" id="conn"><i></i><span>Connecting…</span></div>
+        <button class="forget" id="forget" type="button">Forget car</button>
+      </div>
     </header>
+
+    <div class="lost" id="lost" hidden>
+      <b>Can't find car <span id="lost-code"></span></b>
+      <p>Make sure the showroom is open on your iPad or computer. If it shows a different code, pair again.</p>
+      <button id="lost-pair" type="button">Pair a new car</button>
+    </div>
 
     <section class="readout">
       <h1 id="title">Locked</h1>

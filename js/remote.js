@@ -81,7 +81,7 @@ function start(code) {
   /* connection status */
   const conn = $('#conn');
   function setConn(state) {
-    const txt = { connecting: 'Connecting…', searching: 'Looking for the car…', connected: 'Connected', nohost: 'Car not found', lost: 'Reconnecting…', error: 'Reconnecting…' }[state] || state;
+    const txt = { connecting: 'Connecting…', searching: 'Searching…', connected: 'Connected', nohost: 'Car not found', lost: 'Reconnecting…', error: 'Reconnecting…' }[state] || state;
     conn.querySelector('span').textContent = txt;
     conn.className = 'conn ' + (state === 'connected' ? 'ok' : state === 'nohost' ? 'bad' : '');
   }
@@ -91,7 +91,20 @@ function start(code) {
     if (ok && !connected) { connected = true; document.body.classList.remove('disabled'); setConn('connected'); buzz(15); }
     else if (!ok && connected) { connected = false; document.body.classList.add('disabled'); setConn('searching'); }
   }, 300);
-  $('#change-car').addEventListener('click', () => { history.replaceState(null, '', location.pathname); store.set('apex-last-code', ''); location.reload(); });
+  // Forget the paired car: always available, connected or not
+  const forget = () => { history.replaceState(null, '', location.pathname); store.set('apex-last-code', ''); location.reload(); };
+  $('#change-car').addEventListener('click', forget);
+  $('#lost-pair').addEventListener('click', forget);
+  $('#forget').addEventListener('click', () => {
+    if (!connected || confirm(`Forget car ${code}? You'll need to scan its QR code again.`)) forget();
+  });
+  // after a few seconds of searching, offer to pair a different car
+  $('#lost-code').textContent = code;
+  let lostSince = performance.now();
+  setInterval(() => {
+    if (connected) lostSince = performance.now();
+    $('#lost').hidden = connected || performance.now() - lostSince < 6000;
+  }, 500);
 
   /* incoming */
   link.on('message', (m) => {

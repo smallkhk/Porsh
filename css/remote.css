@@ -118,3 +118,12 @@ header { display: flex; justify-content: space-between; align-items: center; }
 .car-line { color: var(--muted); font-size: 12px; margin: 0 2px 10px; }
 .car-line b { font-family: var(--mono); color: #cfd3dc; letter-spacing: .1em; }
 .link { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; font-size: 12px; padding: 0; }
+
+.hdr-right { display: flex; align-items: center; gap: 12px; }
+.forget { font-size: 12px; font-weight: 600; color: var(--fg); padding: 6px 12px; border: 1.5px solid var(--line); border-radius: 99px; }
+.forget:active { background: rgba(255,255,255,.1); }
+.lost { margin-top: 18px; padding: 16px; border-radius: 16px; border: 1.5px solid rgba(255,59,59,.45); background: rgba(255,59,59,.08); }
+.lost b { font-size: 15px; }
+.lost b span { font-family: var(--mono); letter-spacing: .1em; }
+.lost p { color: #cfd3dc; font-size: 13px; line-height: 1.45; margin: 6px 0 12px; }
+.lost button { width: 100%; padding: 13px; border-radius: 12px; background: var(--fg); color: #000; font-weight: 700; }

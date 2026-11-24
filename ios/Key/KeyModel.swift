@@ -23,6 +23,9 @@ final class KeyModel: ObservableObject {
     @Published var paired: Bool
     @Published var flash: String?
     @Published var throttle: Double = 0
+    /// true once we've been searching for the car for a while → offer to pair another
+    @Published var lostLong = false
+    private var lostSince = Date()
 
     private(set) var host: String
     private(set) var code: String
@@ -74,6 +77,7 @@ final class KeyModel: ObservableObject {
 
     func unpair() {
         stop()
+        lostLong = false
         code = ""
         UserDefaults.standard.removeObject(forKey: "code")
         paired = false
@@ -84,10 +88,11 @@ final class KeyModel: ObservableObject {
     private func start() {
         stop()
         status = "Connecting…"
+        lostSince = Date(); lostLong = false
         relay = RelayClient(host: host, room: code, role: .remote)
         relay?.onOpenChange = { [weak self] open in
             guard let self = self else { return }
-            if !self.connected { self.status = open ? "Looking for the car…" : "Reconnecting…" }
+            if !self.connected { self.status = open ? "Searching…" : "Reconnecting…" }
             if open { self.send(["t": "hb"]) }
         }
         relay?.onMessage = { [weak self] m in self?.handle(m) }
@@ -107,10 +112,13 @@ final class KeyModel: ObservableObject {
 
     private func checkLink() {
         let ok = Date().timeIntervalSince(lastHost) < 2.5
+        if ok { lostSince = Date() }
+        let long = !ok && Date().timeIntervalSince(lostSince) > 6
+        if long != lostLong { lostLong = long }
         guard ok != connected else { return }
         connected = ok
         if ok { status = "Connected"; Haptics.medium() }
-        else { status = relay?.isOpen == true ? "Looking for the car…" : "Reconnecting…" }
+        else { status = relay?.isOpen == true ? "Searching…" : "Reconnecting…" }
     }
 
     private func handle(_ m: [String: Any]) {

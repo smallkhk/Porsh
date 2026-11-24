@@ -24,12 +24,14 @@ struct KeyRootView: View {
 struct KeyView: View {
     @ObservedObject var model: KeyModel
     @State private var garageOpen = false
+    @State private var confirmForget = false
 
     private var s: CarState { model.state ?? CarState() }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
             header.padding(.horizontal, 20)
+            if model.lostLong { lostCard.padding(.horizontal, 20).padding(.top, 16) }
             VStack(alignment: .leading, spacing: 0) {
                 readout.padding(.top, 22)
                 ShiftLights(rpm: s.rpm, running: s.running).padding(.top, 14)
@@ -61,10 +63,41 @@ struct KeyView: View {
             HStack(spacing: 7) {
                 Circle().fill(model.connected ? Color.green : Color.orange).frame(width: 7, height: 7)
                     .shadow(color: model.connected ? .green : .clear, radius: 4)
-                Text(model.status).font(.system(size: 13)).foregroundColor(model.connected ? .white : muted)
+                Text(model.status).font(.system(size: 13)).foregroundColor(model.connected ? .white : muted).lineLimit(1)
             }
+            // always enabled, connected or not
+            Button("Forget car") {
+                if model.connected { confirmForget = true } else { model.unpair() }
+            }
+            .font(.system(size: 12, weight: .semibold)).foregroundColor(.white)
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .overlay(Capsule().stroke(line, lineWidth: 1.5))
+            .padding(.leading, 8)
         }
         .padding(.top, 8)
+        .confirmationDialog("Forget car \(model.code)?", isPresented: $confirmForget, titleVisibility: .visible) {
+            Button("Forget car", role: .destructive) { model.unpair() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("You'll need to scan its QR code again.")
+        }
+    }
+
+    private var lostCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Can't find car \(model.code)").font(.system(size: 15, weight: .bold))
+            Text("Make sure the showroom is open on your iPad or computer. If it shows a different code, pair again.")
+                .font(.system(size: 13)).foregroundColor(Color(white: 0.82))
+            Button { model.unpair() } label: {
+                Text("Pair a new car").font(.system(size: 15, weight: .bold)).foregroundColor(.black)
+                    .frame(maxWidth: .infinity).padding(.vertical, 13)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.white))
+            }
+            .buttonStyle(.plain).padding(.top, 4)
+        }
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: 16).fill(red.opacity(0.08)))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(red.opacity(0.45), lineWidth: 1.5))
     }
 
     private var title: String {
