@@ -11,6 +11,13 @@ on:
     paths: ["ios/**", ".github/workflows/ios.yml"]
   workflow_dispatch:
 
+permissions:
+  contents: write   # to publish the .ipa files to the "ios-latest" release
+
+concurrency:
+  group: ios-build
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: macos-15
@@ -45,6 +52,15 @@ jobs:
           done
           ls -la "$GITHUB_WORKSPACE/out"
           exit $failed
+
+      - name: Publish direct download links (release "ios-latest")
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view ios-latest >/dev/null 2>&1 || gh release create ios-latest --prerelease \
+            --title "APEX iOS apps (latest build)" \
+            --notes "Unsigned builds of the native Swift apps. Install with Sideloadly or AltStore using your Apple ID. APEXViewer = iPad showroom, APEXKey = iPhone key."
+          gh release upload ios-latest out/APEXViewer-unsigned.ipa out/APEXKey-unsigned.ipa --clobber
 
       - uses: actions/upload-artifact@v4
         with:
