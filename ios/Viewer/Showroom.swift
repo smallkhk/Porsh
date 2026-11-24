@@ -158,8 +158,8 @@ final class Showroom: NSObject, ObservableObject {
         cam.zNear = 0.1
         cam.zFar = 120
         cam.wantsHDR = true
-        cam.bloomIntensity = 0.9
-        cam.bloomThreshold = 1.0
+        cam.bloomIntensity = 0.8
+        cam.bloomThreshold = 1.8
         cam.bloomBlurRadius = 14
         cam.wantsExposureAdaptation = false
         cam.vignettingIntensity = 0.6

@@ -300,7 +300,7 @@ final class Car {
     let chassis = SCNNode()
 
     let paint = pbr(UIColor(hex: "#1b55e0"), metal: 0.5, rough: 0.26, clear: 1, clearRough: 0.07, double: true)
-    let stripe = pbr(UIColor(hex: "#e8c15a"), metal: 0.6, rough: 0.3, clear: 1, clearRough: 0.07, double: true)
+    let stripe = pbr(UIColor(hex: "#b8913a"), metal: 0.7, rough: 0.32, clear: 1, clearRough: 0.07, double: true)
     let glass = pbr(UIColor(red: 0.01, green: 0.012, blue: 0.02, alpha: 1), metal: 0.1, rough: 0.08, clear: 1, clearRough: 0.1, double: true)
     let under = pbr(UIColor(red: 0.03, green: 0.035, blue: 0.045, alpha: 1), metal: 0, rough: 0.9, double: true)
     let carbon = pbr(UIColor(red: 0.07, green: 0.07, blue: 0.085, alpha: 1), metal: 0.3, rough: 0.35, clear: 0.8)
@@ -715,10 +715,10 @@ final class Car {
         let ledI = lv * 2.4 + 0.02
         setGlow(ledMat, ledI * 0.95, ledI, ledI * 1.15)
         for b in beams {
-            b.intensity = CGFloat(lv * 2200)
+            b.intensity = CGFloat(lv * 1600)
             b.spotOuterAngle = lv > 1.2 ? 38 : 46
         }
-        for m in coneMats { m.transparency = CGFloat(max(0, lv - 0.2) * 0.07) }
+        for m in coneMats { m.transparency = CGFloat(max(0, lv - 0.2) * 0.022) }
 
         // hazards
         var blink: Float = 0
