@@ -37,7 +37,7 @@ jobs:
             if ! xcodebuild -project APEX.xcodeproj -scheme "$s" -configuration Release \
               -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build/device \
               CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" -quiet build 2>&1 | grep -E "error|warning: unre|BUILD" ; then :; fi
-            if [ ! -d "build/device/Build/Products/Release-iphoneos/$s.app" ]; then failed=1; echo "::endgroup::"; continue; fi
+            if [ ! -f "build/device/Build/Products/Release-iphoneos/$s.app/$s" ]; then failed=1; echo "::endgroup::"; continue; fi
             rm -rf Payload && mkdir Payload
             cp -R "build/device/Build/Products/Release-iphoneos/$s.app" Payload/
             zip -qry "$GITHUB_WORKSPACE/out/$s-unsigned.ipa" Payload

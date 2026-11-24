@@ -63,8 +63,9 @@ final class Showroom: NSObject, ObservableObject {
     override init() {
         let d = UserDefaults.standard
         server = d.string(forKey: "server") ?? Server.defaultHost
-        code = d.string(forKey: "carCode") ?? makeCode()
-        d.set(code, forKey: "carCode")
+        let c = d.string(forKey: "carCode") ?? makeCode()
+        code = c
+        d.set(c, forKey: "carCode")
         super.init()
         buildScene()
         startLink()
