@@ -25,6 +25,8 @@ die()  { printf '\033[1;31mxx\033[0m %s\n' "$*" >&2; exit 1; }
 [ "$(id -u)" -eq 0 ] || die "Run as root:  curl -fsSL <link> | sudo bash"
 command -v apt-get >/dev/null || die "This installer supports Ubuntu/Debian (apt). Use the Docker files in the repo instead."
 export DEBIAN_FRONTEND=noninteractive
+# wait (up to 10 min) if automatic updates are holding the apt lock, instead of failing
+APT="apt-get -o DPkg::Lock::Timeout=600"
 
 # ---------- address ----------
 if [ -z "${DOMAIN:-}" ]; then
@@ -36,15 +38,15 @@ say "Address: https://${DOMAIN}"
 
 # ---------- packages ----------
 say "Installing base packages"
-apt-get update -qq
-apt-get install -y -qq curl git ca-certificates gnupg debian-keyring debian-archive-keyring apt-transport-https >/dev/null
+$APT update -qq
+$APT install -y -qq curl git ca-certificates gnupg debian-keyring debian-archive-keyring apt-transport-https >/dev/null
 
 NODE_MAJOR=0
 command -v node >/dev/null && NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
 if [ "$NODE_MAJOR" -lt 20 ]; then
   say "Installing Node.js 22"
   curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null
-  apt-get install -y -qq nodejs >/dev/null
+  $APT install -y -qq nodejs >/dev/null
 fi
 say "Node $(node -v)"
 
@@ -106,7 +108,7 @@ server {
 EOF
   ln -sf /etc/nginx/sites-available/apex9r.conf /etc/nginx/sites-enabled/apex9r.conf
   nginx -t -q && systemctl reload nginx
-  apt-get install -y -qq certbot python3-certbot-nginx >/dev/null
+  command -v certbot >/dev/null && certbot plugins 2>/dev/null | grep -q nginx || $APT install -y -qq certbot python3-certbot-nginx >/dev/null
   certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email --redirect -q \
     || warn "Certificate request failed (rate limit or port 80 blocked). Site still works on http://${DOMAIN}"
 elif [ -n "$OWNER" ] && [ "$OWNER" != "caddy" ]; then
@@ -116,7 +118,7 @@ else
     say "Installing Caddy (automatic HTTPS)"
     curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --batch --yes --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
     curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' > /etc/apt/sources.list.d/caddy-stable.list
-    apt-get update -qq && apt-get install -y -qq caddy >/dev/null
+    $APT update -qq && $APT install -y -qq caddy >/dev/null
   fi
   # our own file; an existing Caddyfile only gets one import line added
   cat > /etc/caddy/apex9r.caddy <<EOF
