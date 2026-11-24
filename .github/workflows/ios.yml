@@ -88,7 +88,7 @@ jobs:
           xcrun simctl install "$IPHONE" build/sim/Build/Products/Debug-iphonesimulator/APEXKey.app
           shot() { xcrun simctl io "$1" screenshot "$GITHUB_WORKSPACE/shots/$2.png"; }
           echo "::group::Audio self-test"
-          ( xcrun simctl launch --console-pty "$IPAD" app.apex9r.viewer -audioTest & P=$!; sleep 40; kill $P 2>/dev/null ) | tee "$GITHUB_WORKSPACE/shots/audio-selftest.txt" | grep AUDIOTEST || true
+          ( xcrun simctl launch --console-pty "$IPAD" app.apex9r.viewer -audioTest & P=$!; for i in $(seq 1 60); do sleep 5; kill -0 $P 2>/dev/null || break; done; kill $P 2>/dev/null ) | tee "$GITHUB_WORKSPACE/shots/audio-selftest.txt" | grep AUDIOTEST || true
           echo "::endgroup::"
           xcrun simctl launch "$IPAD" app.apex9r.viewer; sleep 14; shot "$IPAD" viewer-1-locked
           xcrun simctl terminate "$IPAD" app.apex9r.viewer

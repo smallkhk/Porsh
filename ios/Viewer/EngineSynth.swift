@@ -247,6 +247,11 @@ final class EngineSynth {
             let rms = n > 0 ? (sum / Double(n)).squareRoot() : 0
             out.append(nan ? "\(r)rpm NaN!" : String(format: "%drpm load%d %.1f dB", r, l, 20 * log10(max(rms, 1e-9))))
           }
+          // print each car as soon as it's measured (CI may time out on slow simulators)
+          if let start = out.lastIndex(where: { $0.hasPrefix("[") }) {
+              print("AUDIOTEST: " + out[start...].joined(separator: " | "))
+              fflush(stdout)
+          }
         }
         engine.stop()
         return out.joined(separator: " | ")
