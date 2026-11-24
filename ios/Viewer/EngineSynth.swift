@@ -92,32 +92,52 @@ final class EngineSynth {
         }
     }
 
-    private func buildTable() {
-        let N = 48
+    private func buildTable() { table = EngineSynth.makeTable(cyl: 6, lope: 0.28) }
+
+    /// One 4-stroke cycle: harmonic `cyl` = firing pulses, half-orders = lumpy lope.
+    static func makeTable(cyl: Int, lope: Float) -> [Float] {
+        let N = max(48, cyl * 4 + 1), half = max(1, cyl / 2)
         func amp(_ k: Int) -> Float {
             let kf = Float(k)
             var a: Float = 0.05 / kf
-            if k % 6 == 0 { a += 1.0 / (kf / 6) }
-            if k % 3 == 0 { a += 0.28 / kf.squareRoot() }
+            if k % cyl == 0 { a += 1.0 / (kf / Float(cyl)) }
+            if k % half == 0 { a += lope / kf.squareRoot() }
             if k % 2 == 0 { a += 0.12 / kf.squareRoot() }
             return a
         }
+        var t = [Float](repeating: 0, count: 4096)
         var peak: Float = 0
-        for i in 0..<table.count {
-            let x = Float(i) / Float(table.count) * 2 * Float.pi
+        for i in 0..<t.count {
+            let x = Float(i) / Float(t.count) * 2 * Float.pi
             var v: Float = 0
             for k in 1..<N {
                 let a = amp(k)
                 let im = a * (k % 4 == 1 ? -1 : 1), re = a * 0.3
                 v += re * cos(Float(k) * x) + im * sin(Float(k) * x)
             }
-            table[i] = v
+            t[i] = v
             peak = max(peak, abs(v))
         }
-        for i in 0..<table.count { table[i] /= peak }
+        return t.map { $0 / peak }
     }
 
-    // MARK: lifecycle
+    // per-car character (read on the audio thread)
+    private var pendingTable: [Float]?
+    private var isEV = false
+    private var limitF: Float = 9000, subAmt: Float = 0.55, screamAmt: Float = 1, fire: Float = 3
+    private var evPh1: Float = 0, evPh2: Float = 0, evPh3: Float = 0
+    private var evBP = Biquad()
+
+    /// Switch engine character (flat-six, V12, electric…) from cars.json.
+    func setCharacter(_ e: CarSpec.Engine) {
+        let t = e.isEV ? nil : EngineSynth.makeTable(cyl: e.cyl ?? 6, lope: e.lope ?? 0.28)
+        lock.lock(); if let t = t { pendingTable = t }; lock.unlock()
+        isEV = e.isEV
+        limitF = Float(e.limit)
+        subAmt = e.sub ?? 0.55
+        screamAmt = e.scream ?? 1
+        fire = Float(e.cyl ?? 6) / 2
+    }
 
     /// Last audio error, shown on screen so problems aren't silent.
     private(set) var lastError: String?
@@ -200,7 +220,11 @@ final class EngineSynth {
         do { try engine.start() } catch { return "engine start failed: \(error.localizedDescription)" }
         guard let buf = AVAudioPCMBuffer(pcmFormat: engine.manualRenderingFormat, frameCapacity: 4096) else { return "no buffer" }
         var out: [String] = []
-        for (r, l) in [(1000, 0), (3000, 1), (6000, 1), (9000, 1)] {
+        for car in CarSpec.all {
+          setCharacter(car.engine)
+          out.append("[\(car.id)]")
+          let lim = Int(car.engine.limit)
+          for (r, l) in [(max(1000, Int(car.engine.idle)), 0), (lim / 3, 1), (lim * 2 / 3, 1), (lim, 1)] {
             rpm = Float(r); load = Float(l); on = true
             var sum = 0.0, n = 0, nan = false
             for block in 0..<36 {
@@ -214,6 +238,7 @@ final class EngineSynth {
             }
             let rms = n > 0 ? (sum / Double(n)).squareRoot() : 0
             out.append(nan ? "\(r)rpm NaN!" : String(format: "%drpm load%d %.1f dB", r, l, 20 * log10(max(rms, 1e-9))))
+          }
         }
         engine.stop()
         return out.joined(separator: " | ")
@@ -278,6 +303,7 @@ final class EngineSynth {
     private func render(_ L: UnsafeMutablePointer<Float>, _ R: UnsafeMutablePointer<Float>?, _ n: Int) {
         if lock.try() {
             if !pending.isEmpty { voices.append(contentsOf: pending); pending.removeAll(keepingCapacity: true) }
+            if let t = pendingTable { table = t; pendingTable = nil }
             lock.unlock()
         }
         let tRpm = rpm, tLoad = load, tOn: Float = on ? 1 : 0, tMaster = volume
@@ -292,22 +318,37 @@ final class EngineSynth {
 
             let crank = max(rpmS, 1) / 60
             let cycle = crank / 2
-            let r = min(1, rpmS / 9000)
+            let r = min(1, rpmS / limitF)
 
             if counter & 31 == 0 {
                 tone.lowpass(260 + r * 2600 + loadS * 1700, 1.4, sr)
                 intake.bandpass(500 + crank * 9, 1.8, sr)
-                scream.bandpass(crank * 6, 3, sr)
+                scream.bandpass(crank * fire * 2, 3, sr)
+                evBP.bandpass(600 + crank * 9, 6, sr)
             }
             counter &+= 1
 
             phA += cycle * dt; if phA >= 1 { phA -= 1 }
             phB += cycle * 1.0052 * dt; if phB >= 1 { phB -= 1 }
             phSub += crank * 1.5 * dt; if phSub >= 1 { phSub -= 1 }
-            phScr += crank * 3 * dt; if phScr >= 1 { phScr -= 1 }
+            phScr += crank * fire * dt; if phScr >= 1 { phScr -= 1 }
+
+            if isEV {
+                // electric motor: two whine partials + inverter buzz, louder with speed and load
+                evPh1 += (40 + crank * 2) * dt; if evPh1 >= 1 { evPh1 -= 1 }
+                evPh2 += (60 + crank * 3.03) * dt; if evPh2 >= 1 { evPh2 -= 1 }
+                evPh3 += (80 + crank * 9) * dt; if evPh3 >= 1 { evPh3 -= 1 }
+                let whine = sin(2 * .pi * evPh1) * 0.6 + sin(2 * .pi * evPh2) * 0.25 + evBP.process(2 * evPh3 - 1) * 0.08
+                let ev = onS * (0.025 + 0.2 * pow(r, 0.8) + 0.16 * loadS * (0.3 + 0.7 * r))
+                volS += (ev - volS) * k
+                var o = whine * volS + voicesSample(dt)
+                o = tanh(o * masterS * 1.1)
+                L[i] = o; R?[i] = o
+                continue
+            }
 
             let sub = 4 * abs(phSub - 0.5) - 1
-            let subGain = 0.55 * (1 - r) + 0.1
+            let subGain = subAmt * (1 - r) + 0.1
             let x = (0.55 * wave(phA) + 0.35 * wave(phB) + subGain * sub) * (0.9 + loadS * 1.6)
             var sh = tanh(2.6 * x)
             if sh < 0 { sh *= 0.86 }
@@ -321,7 +362,7 @@ final class EngineSynth {
             out += intake.process(noiseLast) * onS * loadS * (0.02 + 0.3 * r * r) * 2.5
 
             let s = max(0, (r - 0.55) / 0.45)
-            out += scream.process(2 * phScr - 1) * onS * s * s * (0.05 + 0.09 * loadS)
+            out += scream.process(2 * phScr - 1) * onS * s * s * (0.05 + 0.09 * loadS) * screamAmt
 
             out += voicesSample(dt)
             out = tanh(out * masterS * 1.1)

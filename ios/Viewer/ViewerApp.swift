@@ -73,7 +73,7 @@ struct ShowroomView: View {
                 HStack(alignment: .bottom) {
                     if !room.film { hero }
                     Spacer()
-                    Gauge(rpm: room.rpmUI, gear: room.gearUI, speed: room.speedUI, t100: room.t100)
+                    Gauge(rpm: room.rpmUI, gear: room.gearUI, speed: room.speedUI, t100: room.t100, limit: room.limitUI)
                         .frame(width: 220, height: 220)
                         .opacity(room.gaugeOn ? 1 : 0).scaleEffect(room.gaugeOn ? 1 : 0.92)
                         .animation(.easeOut(duration: 0.5), value: room.gaugeOn)
@@ -116,13 +116,13 @@ struct ShowroomView: View {
 
     private var topBar: some View {
         HStack {
-            (Text("APEX 9R").font(.system(size: 15, weight: .bold)) + Text("  GT").font(.system(size: 12, weight: .medium)).foregroundColor(muted))
+            (Text(room.spec.name).font(.system(size: 15, weight: .bold)) + Text(room.spec.engine.isEV ? "  EV" : "  GT").font(.system(size: 12, weight: .medium)).foregroundColor(muted))
                 .opacity(room.film ? 0 : 1)
             Spacer()
             HStack(spacing: 4) {
                 ForEach(["drive", "body", "paint", "key"], id: \.self) { t in
                     Button { panel = panel == t ? nil : t } label: {
-                        Text(t.capitalized).font(.system(size: 13, weight: .medium))
+                        Text(t == "body" ? "Car" : t.capitalized).font(.system(size: 13, weight: .medium))
                             .foregroundColor(panel == t ? .white : muted)
                             .padding(.horizontal, 16).padding(.vertical, 7)
                             .background(Capsule().fill(panel == t ? Color.white.opacity(0.12) : .clear))
@@ -240,6 +240,22 @@ struct ShowroomView: View {
 
     private var bodyPanel: some View {
         VStack(spacing: 6) {
+            VStack(spacing: 8) {
+                ForEach(CarSpec.all, id: \.id) { c in
+                    Button { room.cmd("car", c.id) } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(c.name).font(.system(size: 14, weight: .bold))
+                            Text(c.tagline).font(.system(size: 12)).foregroundColor(Color(white: 0.78))
+                            Text(c.spec).font(.system(size: 11, weight: .medium, design: .monospaced)).foregroundColor(muted)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12).padding(.vertical, 10)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(room.carId == c.id ? 0.12 : 0.04)))
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(room.carId == c.id ? Color.white : lineC))
+                    }.buttonStyle(.plain)
+                }
+            }
+            .padding(.bottom, 8)
             Toggle("Swan-neck wing", isOn: Binding(get: { room.wing }, set: { room.cmd("wing", $0) }))
             Toggle("Centre stripe", isOn: Binding(get: { room.livery }, set: { room.cmd("livery", $0) }))
             HStack {
@@ -271,24 +287,26 @@ struct ShowroomView: View {
 // MARK: - Tachometer
 
 struct Gauge: View {
-    let rpm: Int, gear: String, speed: Int, t100: Double?
+    let rpm: Int, gear: String, speed: Int, t100: Double?, limit: Double
     private let sweep = 0.75 // 270°
+    private var maxRpm: Double { limit > 10000 ? (ceil((limit + 2000) / 2000) * 2000) : 10000 }
+    private var stepRpm: Double { maxRpm > 10000 ? 2000 : 1000 }
 
     var body: some View {
         ZStack {
             Circle().trim(from: 0, to: sweep).stroke(Color.white.opacity(0.08), style: StrokeStyle(lineWidth: 10, lineCap: .round))
                 .rotationEffect(.degrees(135))
-            Circle().trim(from: sweep * 0.8, to: sweep).stroke(Color.red.opacity(0.35), lineWidth: 10)
+            Circle().trim(from: sweep * (limit > 10000 ? 1 : (limit - 1000) / maxRpm), to: sweep).stroke(Color.red.opacity(0.35), lineWidth: 10)
                 .rotationEffect(.degrees(135))
-            Circle().trim(from: 0, to: sweep * min(1, Double(rpm) / 10000))
+            Circle().trim(from: 0, to: sweep * min(1, Double(rpm) / maxRpm))
                 .stroke(AngularGradient(colors: [Color(red: 0.5, green: 0.7, blue: 1), .white, Color(red: 1, green: 0.35, blue: 0.35)],
                                         center: .center, startAngle: .degrees(0), endAngle: .degrees(270)),
                         style: StrokeStyle(lineWidth: 10, lineCap: .round))
                 .rotationEffect(.degrees(135))
-                .shadow(color: rpm > 8850 ? .red : Color(red: 0.5, green: 0.7, blue: 1).opacity(0.6), radius: rpm > 8850 ? 10 : 6)
-            ForEach(0..<11) { i in
-                let a = Angle.degrees(135 + Double(i) / 10 * 270)
-                Text("\(i)").font(.system(size: 10, weight: .semibold, design: .monospaced)).foregroundColor(muted)
+                .shadow(color: Double(rpm) > limit - 150 && limit < 10000 ? .red : Color(red: 0.5, green: 0.7, blue: 1).opacity(0.6), radius: Double(rpm) > limit - 150 ? 10 : 6)
+            ForEach(0...Int(maxRpm / stepRpm), id: \.self) { i in
+                let a = Angle.degrees(135 + Double(i) * stepRpm / maxRpm * 270)
+                Text("\(Int(Double(i) * stepRpm / 1000))").font(.system(size: 10, weight: .semibold, design: .monospaced)).foregroundColor(muted)
                     .offset(x: cos(a.radians) * 62, y: sin(a.radians) * 62)
             }
             VStack(spacing: 4) {

@@ -29,13 +29,24 @@ final class Showroom: NSObject, ObservableObject {
 
     let scene = SCNScene()
     let cameraNode = SCNNode()
-    let car = Car()
+    private(set) var spec: CarSpec = CarSpec.byId(UserDefaults.standard.string(forKey: "car"))
+    private(set) var car: Car!
+    @Published var carId = ""
     let synth = EngineSynth()
     weak var view: SCNView?
 
     // sim
-    private let IDLE = 950.0, LIMIT = 9000.0
-    private let gearTop: [Double] = [0, 72, 118, 162, 207, 252, 305]
+    // engine + gearing come from the selected car
+    private var IDLE = 950.0, LIMIT = 9000.0, VMAX = 330.0, EV = false
+    private var gearTop: [Double] = [0, 72, 118, 162, 207, 252, 305]
+    private var accelTab: [Double] = [0, 10.5, 8.6, 7.0, 5.9, 4.9, 4.0]
+    @Published var limitUI = 9000.0
+    private func applyEngine(_ e: CarSpec.Engine) {
+        IDLE = e.idle; LIMIT = e.limit; VMAX = e.vmax; EV = e.isEV
+        gearTop = e.gearTop; accelTab = e.accel; limitUI = e.limit
+        synth.setCharacter(e)
+    }
+    private var gearShown: String { EV && gear != "N" ? "D" : gear }
     private var locked = true, doors = false, lights = 0
     private var running = false, starting = false
     private var rpm = 0.0, thr = 0.0, thrInput = 0.0, thrAt = Date.distantPast, localThr = 0.0
@@ -157,7 +168,12 @@ final class Showroom: NSObject, ObservableObject {
         keyNode.look(at: SCNVector3(0, 0, 0))
         scene.rootNode.addChildNode(keyNode)
 
+        car = Car(spec: spec)
+        carId = spec.id
         scene.rootNode.addChildNode(car.root)
+        applyEngine(spec.engine)
+        paint = spec.paint; livery = spec.stripe; wing = spec.parts.wing == "swan"
+        car.setPaint(paint); car.setLivery(livery); car.setWing(wing)
 
         // camera: HDR + bloom so the LEDs and flames glow
         let cam = SCNCamera()
@@ -298,8 +314,10 @@ final class Showroom: NSObject, ObservableObject {
     private func sendState() {
         var s = CarState()
         s.locked = locked; s.doors = doors; s.lights = lights; s.running = running; s.starting = starting
-        s.rpm = Int(rpm.rounded()); s.gear = gear; s.speed = Int(speed.rounded()); s.mode = mode; s.t100 = t100
+        s.rpm = Int(rpm.rounded()); s.gear = gearShown; s.speed = Int(speed.rounded()); s.mode = mode; s.t100 = t100
         s.paint = paint; s.wing = wing; s.livery = livery; s.hint = hint
+        s.car = spec.id; s.carName = spec.name; s.limit = Int(LIMIT); s.ev = EV
+        s.cars = CarSpec.all.map { ($0.id, $0.name, $0.tagline) }
         s.cd = mode == "arm" ? max(0, 3 - Int(modeT)) : nil
         relay?.send(s.dict)
     }
@@ -348,6 +366,11 @@ final class Showroom: NSObject, ObservableObject {
             wing = (arg as? Bool) ?? !wing; car.setWing(wing)
         case "livery":
             livery = (arg as? Bool) ?? !livery; car.setLivery(livery)
+        case "car":
+            guard let id = arg as? String, id != spec.id else { return }
+            if running || starting { return deny("Switch the engine off first") }
+            if mode != "idle" || speed > 0 { return deny("Not while moving") }
+            switchCar(id)
         case "rim":
             if let hex = arg as? String { car.setRim(hex) }
         default: return
@@ -363,16 +386,35 @@ final class Showroom: NSObject, ObservableObject {
 
     private func startEngine() {
         starting = true; modeT = 0
-        synth.starter(1.0)
+        if EV { synth.chirp("unlock") } else { synth.starter(1.0) }
         car.setDRL(true)
-        later(1.0) {
+        later(EV ? 0.5 : 1.0) {
             guard self.starting else { return }
             self.starting = false; self.running = true
-            self.rpm = 2600
-            self.popBurst(3, 0.3, 0.8)
-            self.car.flames(0.6)
+            if self.EV { self.synth.chirp("go") } // "Ready"
+            else { self.rpm = 2600; self.popBurst(3, 0.3, 0.8); self.car.flames(0.6) }
             self.setStatus(); self.sendState()
         }
+    }
+
+    /// Swap the whole car: body, parts, engine sound, gearing.
+    private func switchCar(_ id: String) {
+        let next = CarSpec.byId(id)
+        guard next.id != spec.id else { return }
+        spec = next
+        car.root.removeFromParentNode()
+        car = Car(spec: spec)
+        scene.rootNode.addChildNode(car.root)
+        carId = spec.id
+        applyEngine(spec.engine)
+        paint = spec.paint; livery = spec.stripe; wing = spec.parts.wing == "swan"
+        car.setPaint(paint); car.setLivery(livery); car.setWing(wing)
+        if !locked { car.setDRL(true); car.setLights(lights); car.sweep(1) }
+        if doors { car.setDoors(true) }
+        rpm = 0; gear = "N"
+        UserDefaults.standard.set(spec.id, forKey: "car")
+        showToast("\(spec.name) · \(spec.spec)")
+        synth.thud(0.7, pitch: 0.8)
     }
 
     private func stopEngine() {
@@ -380,6 +422,7 @@ final class Showroom: NSObject, ObservableObject {
     }
 
     private func popBurst(_ n: Int, _ spread: Double, _ strength: Float) {
+        if EV { return } // electric: no combustion, no pops
         let now = CACurrentMediaTime()
         for _ in 0..<n { crackle.append((now + Double.random(in: 0...spread), strength * Float.random(in: 0.5...1.1))) }
     }
@@ -403,35 +446,38 @@ final class Showroom: NSObject, ObservableObject {
             rpm = max(0, rpm - dt * 2600)
         } else if mode == "idle" {
             gear = "N"
-            let target = IDLE + pow(t, 1.15) * (LIMIT + 300 - IDLE)
+            let target = IDLE + pow(t, 1.15) * (LIMIT + (EV ? 0 : 300) - IDLE)
+            let rate = LIMIT / 9000
             if cut > 0 { cut -= dt; t = 0; rpm -= dt * 9000 }
-            else if rpm < target { rpm += min(target - rpm, dt * (6000 + 16000 * t)) }
-            else { rpm -= min(rpm - target, dt * 6200) }
-            if rpm >= LIMIT { rpm = LIMIT; cut = 0.055; limiterHit() }
-            rpm += Double.random(in: -9...9)
+            else if rpm < target { rpm += min(target - rpm, dt * (6000 + 16000 * t) * rate) }
+            else { rpm -= min(rpm - target, dt * 6200 * rate) }
+            if rpm >= LIMIT { rpm = LIMIT; if !EV { cut = 0.055; limiterHit() } }
+            if !EV { rpm += Double.random(in: -9...9) }
             if lastThr > 0.45 && t < 0.1 && rpm > 4500 { popBurst(4 + Int.random(in: 0...4), 0.9, 1) }
         } else if mode == "arm" {
             modeT += dt
-            let target = 5200.0
-            if cut > 0 { cut -= dt; rpm -= dt * 8000 } else { rpm += min(target - rpm, dt * 14000) }
-            if rpm >= target - 5 && cut <= 0 { cut = 0.07 + Double.random(in: 0...0.05); if Bool.random() { popBurst(1, 0.05, 0.7) } }
-            t = 1
+            if EV { rpm = max(0, rpm - dt * 8000); t = 0.15 } // motors wait silently; torque arrives on GO
+            else {
+                let target = 5200.0
+                if cut > 0 { cut -= dt; rpm -= dt * 8000 } else { rpm += min(target - rpm, dt * 14000) }
+                if rpm >= target - 5 && cut <= 0 { cut = 0.07 + Double.random(in: 0...0.05); if Bool.random() { popBurst(1, 0.05, 0.7) } }
+                t = 1
+            }
             let n = 3 - Int(modeT)
             setCountdown(n > 0 ? "\(n)" : "GO")
             if modeT >= 3 { mode = "run"; modeT = 0; gear = "1"; speed = 0; setStatus() }
         } else if mode == "run" {
             modeT += dt; t = 1
             let g = Int(gear) ?? 1
-            let v = speed / 3.6, vmax = 330 / 3.6
-            let accel: [Double] = [0, 10.5, 8.6, 7.0, 5.9, 4.9, 4.0]
-            var a = accel[g] * (1 - pow(v / vmax, 2.2))
+            let v = speed / 3.6, vmax = VMAX / 3.6
+            var a = accelTab[g] * (1 - pow(v / vmax, 2.2))
             if shiftCut > 0 { shiftCut -= dt; a = 0.4; t = 0.1 }
             speed += a * dt * 3.6
             let gearRpm = speed / gearTop[g] * LIMIT
-            let slip = max(0, 1 - modeT / 0.55) * 5200
+            let slip = EV ? 0 : max(0, 1 - modeT / 0.55) * 5200
             let want = max(IDLE, gearRpm, slip)
             rpm += (want - rpm) * min(1, dt * (shiftCut > 0 ? 18 : 30))
-            if rpm > 8750 && g < 6 && shiftCut <= 0 {
+            if rpm > LIMIT - 250 && g < gearTop.count - 1 && shiftCut <= 0 {
                 gear = "\(g + 1)"; shiftCut = 0.11; popBurst(2, 0.12, 1.1); car.flames(1); sendEvent("shift")
             }
             if t100 == nil && speed >= 100 { t100 = modeT }
@@ -465,6 +511,7 @@ final class Showroom: NSObject, ObservableObject {
     }
 
     private func limiterHit() {
+        if EV { return }
         if Double.random(in: 0...1) < 0.6 { synth.pop(0.8); car.flames(0.9) }
         let n = CACurrentMediaTime()
         if n - limiterAt > 0.25 { limiterAt = n; sendEvent("limiter") }
@@ -576,7 +623,7 @@ final class Showroom: NSObject, ObservableObject {
             uiAcc = 0
             let on = running || starting || rpm > 50
             if gaugeOn != on { gaugeOn = on }
-            rpmUI = Int(rpm.rounded()); gearUI = gear; speedUI = Int(speed.rounded())
+            rpmUI = Int(rpm.rounded()); gearUI = gearShown; speedUI = Int(speed.rounded())
         }
         stateAcc += dt
         if stateAcc > 0.06 { stateAcc = 0; sendState() }

@@ -38,7 +38,11 @@ targets:
   APEXViewer:
     type: application
     platform: iOS
-    sources: [Viewer, Shared]
+    sources:
+      - Viewer
+      - Shared
+      - path: ../cars/cars.json
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.apex9r.viewer

@@ -53,22 +53,38 @@ struct Curve {
 @inline(__always) func lerpf(_ a: Float, _ b: Float, _ t: Float) -> Float { a + (b - a) * t }
 @inline(__always) func clamp01(_ v: Float) -> Float { max(0, min(1, v)) }
 
+/// The selected car's dimensions (set by `configure(_:)` from cars.json).
 enum Dim {
-    static let xMin: Float = -2.30, xMax: Float = 2.32
-    static let wheelR: Float = 0.355, wheelY: Float = 0.355
-    static let frontX: Float = 1.42, frontTrack: Float = 0.79
-    static let rearX: Float = -1.38, rearTrack: Float = 0.835
-    static let archR: Float = 0.45, archY: Float = 0.34
-    static let door0: Float = -0.86, door1: Float = 0.9
-    static let cabin0: Float = -2.04, cabin1: Float = 0.96
+    static var xMin: Float = -2.30, xMax: Float = 2.32
+    static var wheelR: Float = 0.355, wheelY: Float = 0.355
+    static var frontX: Float = 1.42, frontTrack: Float = 0.79
+    static var rearX: Float = -1.38, rearTrack: Float = 0.835
+    static var archR: Float = 0.45, archY: Float = 0.34
+    static var door0: Float = -0.86, door1: Float = 0.9
+    static var cabin0: Float = -2.04, cabin1: Float = 0.96
+    static var glassWindshield: Float = 0.14, glassRear0: Float = -1.5, glassRear1: Float = -0.72, glassSide: Float = -1.28
+    static var frontBlackY: Float = 0.43, rearBlackY: Float = 0.56
 }
 
 enum Profile {
-    static let W = Curve([(-2.30, 0.82), (-2.2, 0.94), (-1.95, 1.0), (-1.4, 1.03), (-0.95, 0.99), (-0.5, 0.945), (0.3, 0.93), (0.9, 0.955), (1.45, 0.975), (1.9, 0.93), (2.18, 0.84), (2.32, 0.70)])
-    static let BELT = Curve([(-2.30, 0.80), (-2.22, 0.9), (-2.0, 0.975), (-1.45, 1.0), (-0.95, 0.94), (-0.3, 0.9), (0.5, 0.895), (1.0, 0.925), (1.45, 0.935), (1.9, 0.86), (2.18, 0.73), (2.32, 0.58)])
-    static let HOOD = Curve([(-2.30, 0.82), (-2.2, 0.915), (-2.0, 0.955), (-1.5, 0.985), (-0.5, 0.96), (0.4, 0.92), (0.96, 0.845), (1.4, 0.78), (1.9, 0.70), (2.18, 0.62), (2.32, 0.54)])
-    static let ROOF = Curve([(-2.04, 0.955), (-1.6, 1.085), (-1.05, 1.225), (-0.5, 1.285), (0.0, 1.285), (0.2, 1.265), (0.62, 1.07), (0.96, 0.845)])
-    static let BOTTOM = Curve([(-2.30, 0.27), (-2.0, 0.22), (2.0, 0.2), (2.32, 0.23)])
+    private static func c(_ pts: [[Float]]) -> Curve { Curve(pts.map { ($0[0], $0[1]) }) }
+    static var W = Curve([(0, 0), (1, 0)])
+    static var BELT = Curve([(0, 0), (1, 0)])
+    static var HOOD = Curve([(0, 0), (1, 0)])
+    static var ROOF = Curve([(0, 0), (1, 0)])
+    static var BOTTOM = Curve([(0, 0), (1, 0)])
+
+    /// Select which car the generator builds.
+    static func configure(_ s: CarSpec) {
+        let d = s.dims
+        Dim.xMin = d.xMin; Dim.xMax = d.xMax; Dim.wheelR = d.wheelR; Dim.wheelY = d.wheelY
+        Dim.frontX = d.front.x; Dim.frontTrack = d.front.track; Dim.rearX = d.rear.x; Dim.rearTrack = d.rear.track
+        Dim.archR = d.arch.r; Dim.archY = d.arch.y
+        Dim.door0 = d.door[0]; Dim.door1 = d.door[1]; Dim.cabin0 = d.cabin[0]; Dim.cabin1 = d.cabin[1]
+        Dim.glassWindshield = d.glass.windshield; Dim.glassRear0 = d.glass.rear[0]; Dim.glassRear1 = d.glass.rear[1]; Dim.glassSide = d.glass.side
+        Dim.frontBlackY = d.frontBlackY; Dim.rearBlackY = d.rearBlackY
+        W = c(s.curves.W); BELT = c(s.curves.BELT); HOOD = c(s.curves.HOOD); ROOF = c(s.curves.ROOF); BOTTOM = c(s.curves.BOTTOM)
+    }
 
     static func archY(_ x: Float) -> Float? {
         for cx in [Dim.frontX, Dim.rearX] {
@@ -116,9 +132,9 @@ enum Part: String, CaseIterable {
 
 private func tagFor(_ x: Float, _ seg: Int, _ side: Int) -> Part {
     let inDoor = x > Dim.door0 && x < Dim.door1 && seg >= 3 && seg <= 9
-    let windshield = x > 0.14 && x < Dim.cabin1
-    let rearGlass = x > -1.5 && x < -0.72
-    let sideGlass = x > -1.28 && x < Dim.cabin1
+    let windshield = x > Dim.glassWindshield && x < Dim.cabin1
+    let rearGlass = x > Dim.glassRear0 && x < Dim.glassRear1
+    let sideGlass = x > Dim.glassSide && x < Dim.cabin1
     if seg <= 2 { return .under }
     if inDoor {
         let glass = seg == 9 && sideGlass
@@ -147,7 +163,7 @@ func buildBody() -> BodyMesh {
     var xs: [Float] = []
     var x = Dim.xMin
     while x <= Dim.xMax + 1e-6 { xs.append(x); x += 0.016 }
-    var bps: [Float] = [Dim.door0, Dim.door1, Dim.cabin0, Dim.cabin1, 0.14, -1.5, -0.72, -1.28, Dim.xMin, Dim.xMax]
+    var bps: [Float] = [Dim.door0, Dim.door1, Dim.cabin0, Dim.cabin1, Dim.glassWindshield, Dim.glassRear0, Dim.glassRear1, Dim.glassSide, Dim.xMin, Dim.xMax]
     let fs: [Float] = [-1, -0.995, -0.98, -0.95, -0.9, 0.9, 0.95, 0.98, 0.995, 1]
     for cx in [Dim.frontX, Dim.rearX] { for f in fs { bps.append(cx + f * Dim.archR) } }
     xs = xs.filter { v in !bps.contains { abs(v - $0) < 0.004 } } + bps
@@ -198,16 +214,16 @@ func buildBody() -> BodyMesh {
             var tag: Part = isCap ? .paint : tagFor(xm, seg, side)
             let qy = (pos[Int(a)].y + pos[Int(b)].y + pos[Int(c)].y + pos[Int(d)].y) / 4
             let qz = abs(pos[Int(a)].z + pos[Int(c)].z) / 2
-            if tag == .paint && xm > 2.12 && qy < 0.43 && qz < 0.7 { tag = .under }      // nose intake
-            if tag == .paint && xm < Dim.xMin + 0.02 && qy < 0.56 && qz < 0.8 { tag = .under } // diffuser band
+            if tag == .paint && xm > Dim.xMax - 0.2 && qy < Dim.frontBlackY && qz < 0.7 { tag = .under }      // nose intake
+            if tag == .paint && xm < Dim.xMin + 0.02 && qy < Dim.rearBlackY && qz < 0.8 { tag = .under } // diffuser band
             add(tag, a, b, d, b, c, d)
         }
     }
     let last = rings.count - 1
     for k in 0..<R {
         let k2 = (k + 1) % R
-        add(rings[0][k].y < 0.56 ? .under : .paint, rearC, UInt32(k2), UInt32(k))
-        add(rings[last][k].y < 0.43 ? .under : .paint, frontC, UInt32(last * R + k), UInt32(last * R + k2))
+        add(rings[0][k].y < Dim.rearBlackY ? .under : .paint, rearC, UInt32(k2), UInt32(k))
+        add(rings[last][k].y < Dim.frontBlackY ? .under : .paint, frontC, UInt32(last * R + k), UInt32(last * R + k2))
     }
 
     // smooth normals over the whole shell
@@ -343,7 +359,12 @@ final class Car {
 
     private static let SEG = 34
 
-    init() {
+    let spec: CarSpec
+    private var L: CarSpec.Layout { spec.layout }
+
+    init(spec: CarSpec) {
+        self.spec = spec
+        Profile.configure(spec)
         root.addChildNode(chassis)
         buildShell()
         buildDoors()
@@ -390,7 +411,7 @@ final class Car {
             if let p = part(side > 0 ? .doorR : .doorL, paint) { inner.addChildNode(p) }
             if let g = part(side > 0 ? .doorRGlass : .doorLGlass, glass) { inner.addChildNode(g) }
             // mirror
-            let mx: Float = 0.6, wz = Profile.W(mx), belt = Profile.BELT(mx)
+            let mx: Float = L.mirrorX, wz = Profile.W(mx), belt = Profile.BELT(mx)
             let stalk = box(0.07, 0.11, 0.02, carbon)
             stalk.position = SCNVector3(mx + 0.02, belt + 0.04, side * (wz - 0.02))
             setEuler(stalk, x: side * 0.9)
@@ -408,7 +429,8 @@ final class Car {
     }
 
     private func buildInterior() {
-        chassis.addChildNode({ let f = box(1.9, 0.04, 1.6, interior); f.position = SCNVector3(-0.05, 0.3, 0); return f }())
+        let cab = SCNNode(); cab.position = SCNVector3(L.cabinX, 0, 0); chassis.addChildNode(cab)
+        cab.addChildNode({ let f = box(1.9, 0.04, 1.6, interior); f.position = SCNVector3(-0.05, 0.3, 0); return f }())
         for z: Float in [-0.37, 0.37] {
             let seat = SCNNode()
             let base = box(0.5, 0.1, 0.46, alcantara); base.position = SCNVector3(0, 0.05, 0)
@@ -417,30 +439,34 @@ final class Car {
             let b2 = box(0.42, 0.14, 0.06, accent); b2.position = SCNVector3(0, 0.1, -0.22)
             [base, back, b1, b2].forEach { seat.addChildNode($0) }
             seat.position = SCNVector3(-0.35, 0.32, z)
-            chassis.addChildNode(seat)
+            cab.addChildNode(seat)
         }
-        let dash = box(0.3, 0.16, 1.5, interior); dash.position = SCNVector3(0.55, 0.76, 0); chassis.addChildNode(dash)
+        let dash = box(0.3, 0.16, 1.5, interior); dash.position = SCNVector3(0.55, 0.76, 0); cab.addChildNode(dash)
         let wheel = node(SCNTorus(ringRadius: 0.17, pipeRadius: 0.022), alcantara, SCNVector3(0.3, 0.82, -0.37))
         setEuler(wheel, z: .pi / 2 + 0.35)
-        chassis.addChildNode(wheel)
+        cab.addChildNode(wheel)
     }
 
     private func buildAero() {
-        let splitter = box(0.3, 0.02, 1.5, carbon); splitter.position = SCNVector3(2.3, 0.2, 0); chassis.addChildNode(splitter)
+        let splitter = box(0.3, 0.02, 1.5, carbon); splitter.position = SCNVector3(Dim.xMax - 0.02, 0.2, 0); chassis.addChildNode(splitter)
+        let midX = (Dim.frontX + Dim.rearX) / 2, skirtLen = Dim.frontX - Dim.rearX - 2 * Dim.archR - 0.08
         for s: Float in [1, -1] {
-            let skirt = box(1.75, 0.05, 0.06, carbon); skirt.position = SCNVector3(0.02, 0.24, s * 0.96); chassis.addChildNode(skirt)
-            let vent = box(0.34, 0.02, 0.2, under)
-            vent.position = SCNVector3(1.7, Profile.HOOD(1.7), s * 0.3)
-            setEuler(vent, z: atan2(Profile.HOOD(1.85) - Profile.HOOD(1.55), 0.3))
-            chassis.addChildNode(vent)
+            let skirt = box(skirtLen, 0.05, 0.06, carbon); skirt.position = SCNVector3(midX, 0.24, s * (Profile.W(midX) + 0.01)); chassis.addChildNode(skirt)
+            if spec.parts.hoodVents {
+                let vx = L.ventX
+                let vent = box(0.34, 0.02, 0.2, under)
+                vent.position = SCNVector3(vx, Profile.HOOD(vx), s * 0.3)
+                setEuler(vent, z: atan2(Profile.HOOD(vx + 0.15) - Profile.HOOD(vx - 0.15), 0.3))
+                chassis.addChildNode(vent)
+            }
         }
-        let diff = box(0.42, 0.03, 1.5, carbon); diff.position = SCNVector3(-2.12, 0.255, 0); setEuler(diff, z: -0.18); chassis.addChildNode(diff)
+        let diff = box(0.42, 0.03, 1.5, carbon); diff.position = SCNVector3(Dim.xMin + 0.18, 0.255, 0); setEuler(diff, z: -0.18); chassis.addChildNode(diff)
         for i in -3...3 {
-            let fin = box(0.4, 0.1, 0.012, carbon); fin.position = SCNVector3(-2.14, 0.24, Float(i) * 0.2); setEuler(fin, z: -0.18)
+            let fin = box(0.4, 0.1, 0.012, carbon); fin.position = SCNVector3(Dim.xMin + 0.16, 0.24, Float(i) * 0.2); setEuler(fin, z: -0.18)
             chassis.addChildNode(fin)
         }
-        for i in 0..<6 {
-            let x: Float = -1.58 - Float(i) * 0.07
+        for i in 0..<(spec.parts.louvres ? 6 : 0) {
+            let x: Float = L.louvreX - Float(i) * 0.07
             let l = box(0.03, 0.012, 0.9, carbon)
             l.position = SCNVector3(x, max(Profile.HOOD(x), Profile.ROOF(x)) + 0.005, 0)
             setEuler(l, z: atan2(Profile.ROOF(x + 0.05) - Profile.ROOF(x - 0.05), 0.1))
@@ -448,17 +474,20 @@ final class Car {
         }
         // swan-neck wing
         let foil = SCNShape(path: Car.airfoil(chord: 0.4, thick: 0.12), extrusionDepth: 1.86)
-        let foilNode = node(foil, carbon, SCNVector3(-1.92, 1.36, 0))
+        let wx = L.wingX + 1.92
+        let foilNode = node(foil, carbon, SCNVector3(-1.92 + wx, 1.36, 0))
         setEuler(foilNode, z: .pi + 0.1)
         wing.addChildNode(foilNode)
         for s: Float in [1, -1] {
-            let plate = box(0.44, 0.13, 0.012, carbon); plate.position = SCNVector3(-2.12, 1.345, s * 0.935); wing.addChildNode(plate)
-            let neck = box(0.1, 0.42, 0.018, carbon); neck.position = SCNVector3(-2.0, 1.17, s * 0.42); setEuler(neck, z: -0.28); wing.addChildNode(neck)
+            let plate = box(0.44, 0.13, 0.012, carbon); plate.position = SCNVector3(-2.12 + wx, 1.345, s * 0.935); wing.addChildNode(plate)
+            let neck = box(0.1, 0.42, 0.018, carbon); neck.position = SCNVector3(-2.0 + wx, 1.17, s * 0.42); setEuler(neck, z: -0.28); wing.addChildNode(neck)
         }
         chassis.addChildNode(wing)
-        ducktail.geometry = SCNBox(width: 0.16, height: 0.035, length: 1.6, chamferRadius: 0)
+        ducktail.geometry = SCNBox(width: 0.14, height: 0.022, length: 1.5, chamferRadius: 0)
         ducktail.geometry?.materials = [carbon]
-        ducktail.position = SCNVector3(-2.22, 0.925, 0); setEuler(ducktail, z: 0.2); ducktail.isHidden = true
+        ducktail.position = SCNVector3(Dim.xMin + 0.06, Profile.HOOD(Dim.xMin + 0.06) + 0.005, 0); setEuler(ducktail, z: 0.25)
+        wing.isHidden = spec.parts.wing != "swan"
+        ducktail.isHidden = spec.parts.wing != "ducktail"
         chassis.addChildNode(ducktail)
     }
 
@@ -485,11 +514,13 @@ final class Car {
     }
 
     private func buildExhaust() {
-        for z: Float in [-0.13, 0.13] {
-            let tip = node(SCNTube(innerRadius: 0.046, outerRadius: 0.055, height: 0.14), chrome, SCNVector3(-2.32, 0.4, z))
+        let ey = L.exhaustY
+        let pipes: [Float] = spec.parts.exhaust == "quad" ? [-0.34, -0.2, 0.2, 0.34] : spec.parts.exhaust == "twin" ? [-0.13, 0.13] : []
+        for z in pipes {
+            let tip = node(SCNTube(innerRadius: 0.046, outerRadius: 0.055, height: 0.14), chrome, SCNVector3(Dim.xMin + (pipes.count > 2 ? 0.03 : -0.02), ey, z))
             setEuler(tip, z: .pi / 2)
             chassis.addChildNode(tip)
-            let inner = node(SCNPlane(width: 0.095, height: 0.095), under, SCNVector3(-2.3, 0.4, z))
+            let inner = node(SCNPlane(width: 0.095, height: 0.095), under, SCNVector3(Dim.xMin, ey, z))
             setEuler(inner, y: -.pi / 2)
             chassis.addChildNode(inner)
 
@@ -505,7 +536,7 @@ final class Car {
                 setEuler(c, z: .pi / 2)
                 flame.addChildNode(c)
             }
-            flame.position = SCNVector3(-2.38, 0.4, z)
+            flame.position = SCNVector3(Dim.xMin - 0.08, ey, z)
             flame.isHidden = true
             chassis.addChildNode(flame)
             flames.append(flame)
@@ -514,15 +545,29 @@ final class Car {
         flameLight.color = UIColor(red: 1, green: 0.48, blue: 0.16, alpha: 1)
         flameLight.intensity = 0
         flameLight.attenuationEndDistance = 4
-        let fl = SCNNode(); fl.light = flameLight; fl.position = SCNVector3(-2.7, 0.45, 0)
+        let fl = SCNNode(); fl.light = flameLight; fl.position = SCNVector3(Dim.xMin - 0.4, ey + 0.05, 0)
         chassis.addChildNode(fl)
     }
 
     private func buildLights() {
         // headlight pods: glossy housing, DRL ring, four LED projectors, indicator
+        if spec.parts.lights == "strip" {
+            // slim full-width LED strip across the nose
+            let sx = L.headX, sy = Profile.BELT(sx) - 0.035
+            let tilt = atan2(Profile.BELT(sx + 0.05) - Profile.BELT(sx - 0.05), 0.1) * 0.6
+            let bar = box(0.03, 0.022, L.headZ * 2.1, drlMat); bar.position = SCNVector3(sx, sy, 0); setEuler(bar, z: tilt); chassis.addChildNode(bar)
+            let barH = box(0.04, 0.045, L.headZ * 2.1 + 0.04, housing); barH.position = SCNVector3(sx - 0.012, sy, 0); setEuler(barH, z: tilt); chassis.addChildNode(barH)
+            for s: Float in [1, -1] {
+                for i in 0..<3 {
+                    let led = box(0.02, 0.018, 0.05, ledMat); led.position = SCNVector3(sx + 0.005, sy - 0.04, s * (L.headZ - 0.06 - Float(i) * 0.07)); chassis.addChildNode(led)
+                }
+                let ind = box(0.03, 0.02, 0.1, indMat); ind.position = SCNVector3(sx, sy, s * (L.headZ * 1.05 + 0.08)); chassis.addChildNode(ind)
+            }
+        }
         for s: Float in [1, -1] {
-            let hx: Float = 1.96, hz = s * 0.66, hy = Profile.BELT(hx) - 0.03
+            let hx: Float = L.headX, hz = s * L.headZ, hy = Profile.BELT(hx) - 0.03
             let pod = SCNNode()
+            pod.isHidden = spec.parts.lights != "pods"
             pod.position = SCNVector3(hx, hy, hz)
             setEuler(pod, z: atan2(Profile.BELT(hx + 0.1) - Profile.BELT(hx - 0.1), 0.2) * 0.8)
             let housingNode = node(SCNSphere(radius: 1), housing)
@@ -541,24 +586,24 @@ final class Car {
             chassis.addChildNode(pod)
 
             // real light that hits the floor
-            let L = SCNLight()
-            L.type = .spot
-            L.color = UIColor(red: 0.91, green: 0.94, blue: 1, alpha: 1)
-            L.intensity = 0
-            L.spotInnerAngle = 18
-            L.spotOuterAngle = 46
-            L.attenuationEndDistance = 30
-            let ln = SCNNode(); ln.light = L; ln.position = SCNVector3(2.1, 0.8, s * 0.66)
+            let beam = SCNLight()
+            beam.type = .spot
+            beam.color = UIColor(red: 0.91, green: 0.94, blue: 1, alpha: 1)
+            beam.intensity = 0
+            beam.spotInnerAngle = 18
+            beam.spotOuterAngle = 46
+            beam.attenuationEndDistance = 30
+            let ln = SCNNode(); ln.light = beam; ln.position = SCNVector3(hx + 0.14, hy, hz)
             let target = SCNNode(); target.position = SCNVector3(9, 0, s * 1.0)
             ln.constraints = [SCNLookAtConstraint(target: target)]
             chassis.addChildNode(ln); chassis.addChildNode(target)
-            beams.append(L)
+            beams.append(beam)
 
             // faint volumetric cone
             let cm = glowMaterial(UIColor(red: 0.8, green: 0.88, blue: 1, alpha: 1))
             cm.blendMode = .add; cm.writesToDepthBuffer = false; cm.isDoubleSided = true; cm.transparency = 0
             let cone = node(SCNCone(topRadius: 0, bottomRadius: 1.4, height: 6), cm, SCNVector3(0, -3, 0))
-            let holder = SCNNode(); holder.position = SCNVector3(2.1, 0.82, s * 0.66)
+            let holder = SCNNode(); holder.position = SCNVector3(hx + 0.14, hy + 0.02, hz)
             setEuler(holder, y: -s * 0.04, z: .pi / 2 + 0.07, order: "YXZ")
             holder.addChildNode(cone)
             chassis.addChildNode(holder)
@@ -567,7 +612,7 @@ final class Car {
 
         // full-width tail light bar, one material per segment so it can animate
         let span: Float = 1.62, segW = span / Float(Car.SEG)
-        let tailX: Float = Dim.xMin - 0.035, tailY: Float = 0.835
+        let tailX: Float = Dim.xMin - 0.035, tailY: Float = L.tailY
         for i in 0..<Car.SEG {
             let z = -span / 2 + segW * (Float(i) + 0.5)
             let t = abs(z) / (span / 2)
@@ -579,7 +624,7 @@ final class Car {
         }
         let th = box(0.03, 0.06, span + 0.04, housing); th.position = SCNVector3(tailX + 0.012, tailY, 0); chassis.addChildNode(th)
         tailGlow.type = .omni; tailGlow.color = UIColor.red; tailGlow.intensity = 0; tailGlow.attenuationEndDistance = 3
-        let tg = SCNNode(); tg.light = tailGlow; tg.position = SCNVector3(-2.9, 0.5, 0); chassis.addChildNode(tg)
+        let tg = SCNNode(); tg.light = tailGlow; tg.position = SCNVector3(Dim.xMin - 0.6, 0.5, 0); chassis.addChildNode(tg)
 
         // rear lettering
         let badgeImg = textImage(CGSize(width: 512, height: 64)) { _, size in
@@ -588,7 +633,7 @@ final class Car {
             ("APEX" as NSString).draw(in: CGRect(x: 0, y: 4, width: size.width, height: size.height), withAttributes: attrs)
         }
         let bm = SCNMaterial(); bm.lightingModel = .constant; bm.diffuse.contents = badgeImg; bm.isDoubleSided = false
-        let badge = node(SCNPlane(width: 0.5, height: 0.0625), bm, SCNVector3(Dim.xMin - 0.04, 0.73, 0))
+        let badge = node(SCNPlane(width: 0.5, height: 0.0625), bm, SCNVector3(Dim.xMin - 0.04, L.badgeY, 0))
         setEuler(badge, y: -.pi / 2)
         chassis.addChildNode(badge)
     }
@@ -650,7 +695,7 @@ final class Car {
         cabinLight.color = UIColor(red: 1, green: 0.85, blue: 0.66, alpha: 1)
         cabinLight.intensity = 0
         cabinLight.attenuationEndDistance = 2.6
-        let cl = SCNNode(); cl.light = cabinLight; cl.position = SCNVector3(-0.1, 1.0, 0)
+        let cl = SCNNode(); cl.light = cabinLight; cl.position = SCNVector3(-0.1 + L.cabinX, 1.0, 0)
         chassis.addChildNode(cl)
 
         let img = textImage(CGSize(width: 256, height: 256)) { ctx, _ in
@@ -674,7 +719,7 @@ final class Car {
         puddleMat.writesToDepthBuffer = false
         puddleMat.transparency = 0
         for s: Float in [1, -1] {
-            let p = node(SCNPlane(width: 1.1, height: 1.1), puddleMat, SCNVector3(0.25, 0.006, s * 1.55))
+            let p = node(SCNPlane(width: 1.1, height: 1.1), puddleMat, SCNVector3((Dim.door0 + Dim.door1) / 2 + 0.23, 0.006, s * (Profile.W(0) + 0.55)))
             setEuler(p, x: -.pi / 2, z: s > 0 ? 0 : .pi)
             root.addChildNode(p)
         }
@@ -685,7 +730,7 @@ final class Car {
     func setPaint(_ hex: String) { paint.diffuse.contents = UIColor(hex: hex); if !livery { stripeNode?.geometry?.materials = [paint] } }
     func setLivery(_ on: Bool) { livery = on; stripeNode?.geometry?.materials = [on ? stripe : paint] }
     func setRim(_ hex: String) { rim.diffuse.contents = UIColor(hex: hex) }
-    func setWing(_ on: Bool) { wing.isHidden = !on; ducktail.isHidden = on }
+    func setWing(_ on: Bool) { wing.isHidden = !on; ducktail.isHidden = on || spec.parts.wing == "none" }
     func setDoors(_ open: Bool) { doorTarget = open ? 1 : 0 }
     func setLights(_ level: Int) { lightsTarget = Float(level) }
     func setDRL(_ on: Bool) { drlTarget = on ? 1 : 0 }
@@ -757,7 +802,7 @@ final class Car {
             let flick = Float.random(in: 0.7...1.3)
             f.scale = SCNVector3(flame * flick, 0.7 + flame * 0.5 * flick, 0.7 + flame * 0.5 * flick)
         }
-        flameLight.intensity = CGFloat(flame * 400)
+        flameLight.intensity = flames.isEmpty ? 0 : CGFloat(flame * 400)
 
         // wheels: right side spins about -z, mirrored left side about +z
         for w in wheels { w.spin.eulerAngles = SCNVector3(0, 0, w.left ? wheelAngle : -wheelAngle) }

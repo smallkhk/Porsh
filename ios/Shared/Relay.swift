@@ -138,6 +138,11 @@ struct CarState {
     var livery = true
     var hint = ""
     var cd: Int? = nil
+    var car = ""
+    var carName = ""
+    var limit = 9000
+    var ev = false
+    var cars: [(id: String, name: String, tagline: String)] = []
 
     init() {}
 
@@ -157,6 +162,16 @@ struct CarState {
         livery = d["livery"] as? Bool ?? true
         hint = d["hint"] as? String ?? ""
         cd = (d["cd"] as? NSNumber)?.intValue
+        car = d["car"] as? String ?? ""
+        carName = d["carName"] as? String ?? ""
+        limit = (d["limit"] as? NSNumber)?.intValue ?? 9000
+        ev = d["ev"] as? Bool ?? false
+        if let list = d["cars"] as? [[String: Any]] {
+            cars = list.compactMap { c in
+                guard let id = c["id"] as? String, let name = c["name"] as? String else { return nil }
+                return (id, name, c["tagline"] as? String ?? "")
+            }
+        }
     }
 
     var dict: [String: Any] {
@@ -168,6 +183,8 @@ struct CarState {
         d["gear"] = Int(gear) ?? (gear as Any)
         d["t100"] = t100 ?? NSNull()
         d["cd"] = cd ?? NSNull()
+        d["car"] = car; d["carName"] = carName; d["limit"] = limit; d["ev"] = ev
+        d["cars"] = cars.map { ["id": $0.id, "name": $0.name, "tagline": $0.tagline] }
         return d
     }
 }
@@ -177,6 +194,7 @@ struct CarState {
 let paintChoices: [(name: String, hex: String)] = [
     ("Voltage Blue", "#1b55e0"), ("Lava Orange", "#ff5a1f"), ("Signal Red", "#c8101e"), ("Chalk", "#d9d6cf"),
     ("Acid Green", "#9fe01b"), ("Obsidian", "#0d0e12"), ("Ultraviolet", "#5a2bd6"), ("Arctic Silver", "#a9b0bb"),
+    ("Racing Green", "#123d2b"), ("Sunset Gold", "#c9922e"), ("Midnight", "#16213e"), ("Rosso", "#9e0f1c"),
 ]
 
 extension UIColor {

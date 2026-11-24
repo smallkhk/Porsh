@@ -34,7 +34,7 @@ struct KeyView: View {
             if model.lostLong { lostCard.padding(.horizontal, 20).padding(.top, 16) }
             VStack(alignment: .leading, spacing: 0) {
                 readout.padding(.top, 22)
-                ShiftLights(rpm: s.rpm, running: s.running).padding(.top, 14)
+                ShiftLights(rpm: s.rpm, running: s.running, limit: s.limit, ev: s.ev).padding(.top, 14)
                 roundButtons.padding(.top, 24)
                 HStack(spacing: 14) {
                     EngineButton(running: s.running || s.starting) { model.cmd("engine") }
@@ -58,7 +58,7 @@ struct KeyView: View {
 
     private var header: some View {
         HStack {
-            Text("APEX 9R").font(.system(size: 15, weight: .bold)) + Text("  GT").font(.system(size: 13, weight: .medium)).foregroundColor(muted)
+            Text(s.carName.isEmpty ? "APEX 9R" : s.carName).font(.system(size: 15, weight: .bold)) + Text(s.ev ? "  EV" : "  GT").font(.system(size: 13, weight: .medium)).foregroundColor(muted)
             Spacer()
             HStack(spacing: 7) {
                 Circle().fill(model.connected ? Color.green : Color.orange).frame(width: 7, height: 7)
@@ -177,12 +177,27 @@ struct KeyView: View {
             }.buttonStyle(.plain)
             if garageOpen {
                 VStack(spacing: 14) {
+                    VStack(spacing: 8) {
+                        ForEach(s.cars, id: \.id) { c in
+                            Button { Haptics.tap(); model.cmd("car", c.id) } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(c.name).font(.system(size: 15, weight: .bold))
+                                    Text(c.tagline).font(.system(size: 12)).foregroundColor(muted)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 14).padding(.vertical, 12)
+                                .background(RoundedRectangle(cornerRadius: 14).fill(Color.white.opacity(s.car == c.id ? 0.1 : 0.04)))
+                                .overlay(RoundedRectangle(cornerRadius: 14).stroke(s.car == c.id ? Color.white : line, lineWidth: 1.5))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
                     HStack {
                         Text("Paint")
                         Spacer()
-                        HStack(spacing: 8) {
+                        LazyVGrid(columns: Array(repeating: GridItem(.fixed(24), spacing: 8), count: 6), spacing: 8) {
                             ForEach(paintChoices, id: \.hex) { p in
-                                Circle().fill(Color(uiColor: UIColor(hex: p.hex))).frame(width: 26, height: 26)
+                                Circle().fill(Color(uiColor: UIColor(hex: p.hex))).frame(width: 22, height: 22)
                                     .overlay(Circle().stroke(Color.white, lineWidth: s.paint == p.hex ? 2 : 0))
                                     .onTapGesture { Haptics.tap(); model.cmd("paint", p.hex) }
                             }
@@ -337,11 +352,13 @@ struct ThrottlePad: View {
 }
 
 struct ShiftLights: View {
-    let rpm: Int, running: Bool
+    let rpm: Int, running: Bool, limit: Int, ev: Bool
     var body: some View {
         TimelineView(.animation(minimumInterval: 1 / 30)) { ctx in
-            let n = running ? max(0, min(10, Int(ceil(Double(rpm - 5000) / 380)))) : 0
-            let flash = rpm > 8800 && Int(ctx.date.timeIntervalSinceReferenceDate * 14) % 2 == 0
+            // scale to this car's redline: 55% → 98%
+            let lo = Double(limit) * 0.55, span = (Double(limit) * 0.98 - lo) / 10
+            let n = running ? max(0, min(10, Int(ceil((Double(rpm) - lo) / span)))) : 0
+            let flash = !ev && Double(rpm) > Double(limit) * 0.978 && Int(ctx.date.timeIntervalSinceReferenceDate * 14) % 2 == 0
             HStack(spacing: 5) {
                 ForEach(0..<10, id: \.self) { i in
                     let c = ledColor(i, lit: n, flash: flash)
