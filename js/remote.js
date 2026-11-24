@@ -127,28 +127,34 @@ function start(code) {
   ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => eng.addEventListener(ev, () => { if (holdStart) endHold(false); }));
   eng.addEventListener('contextmenu', e => e.preventDefault());
 
-  /* throttle pad */
+  /* throttle pad: a gas pedal. Hold it and the revs keep climbing (full in ~1.8 s); let go and they drop. */
   const pad = $('#throttle'), fill = $('#thr-fill'), tval = $('#thr-val');
-  let thr = 0, startY = 0, pid = null, thrTimer = 0;
+  const RAMP = 1.8;
+  const pedal = (sec) => 0.12 + 0.88 * Math.pow(Math.min(1, sec / RAMP), 1.4);
+  let thr = 0, pid = null, thrTimer = 0, holdAt = 0, raf = 0, lastStep = 0;
   function setThr(v) {
     thr = v;
     fill.style.height = (v * 100).toFixed(0) + '%';
     tval.textContent = v > 0 ? Math.round(v * 100) + '%' : '';
   }
   const pushThr = () => link.send({ t: 'thr', v: +thr.toFixed(3) });
+  function ramp() {
+    if (pid === null) return;
+    setThr(pedal((performance.now() - holdAt) / 1000));
+    const step = Math.floor(thr * 10);
+    if (step !== lastStep) { lastStep = step; buzz(6); }
+    raf = requestAnimationFrame(ramp);
+  }
   pad.addEventListener('pointerdown', (e) => {
     e.preventDefault(); pid = e.pointerId; pad.setPointerCapture(pid); pad.classList.add('on');
-    startY = e.clientY; setThr(0.4); pushThr(); buzz(8);
+    holdAt = performance.now(); lastStep = 0; buzz(8);
+    ramp(); pushThr();
     clearInterval(thrTimer); thrTimer = setInterval(pushThr, 50);
-  });
-  pad.addEventListener('pointermove', (e) => {
-    if (e.pointerId !== pid) return;
-    const h = pad.getBoundingClientRect().height;
-    setThr(Math.max(0.08, Math.min(1, 0.4 + (startY - e.clientY) / (h * 0.55))));
   });
   const release = (e) => {
     if (e.pointerId !== pid) return;
-    pid = null; pad.classList.remove('on'); clearInterval(thrTimer); setThr(0); pushThr(); setTimeout(pushThr, 80);
+    pid = null; cancelAnimationFrame(raf); pad.classList.remove('on'); clearInterval(thrTimer);
+    setThr(0); pushThr(); setTimeout(pushThr, 80);
   };
   pad.addEventListener('pointerup', release); pad.addEventListener('pointercancel', release);
   pad.addEventListener('contextmenu', e => e.preventDefault());
@@ -206,7 +212,7 @@ function start(code) {
     L.textContent = S.mode === 'arm' ? 'Armed — tap to abort' : S.mode === 'run' ? 'Abort' : 'Launch';
     if (performance.now() > hintLock) {
       $('#hint').textContent = S.locked ? 'Unlock the car to begin.'
-        : S.running ? (S.mode === 'idle' ? 'Hold the throttle to rev. Tap Launch for a full launch run.' : 'Hold on…')
+        : S.running ? (S.mode === 'idle' ? 'Hold the throttle: the longer you hold, the harder it revs.' : 'Hold on…')
         : 'Hold the engine button to start it.';
     }
 

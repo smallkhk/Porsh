@@ -92,7 +92,7 @@ struct KeyView: View {
     private var hint: String {
         if !model.connected { return "Open the showroom on your iPad. The key connects by itself." }
         if s.locked { return "Unlock the car to begin." }
-        if s.running { return s.mode == "idle" ? "Hold the throttle to rev. Tap Launch for a full launch run." : "Hold on…" }
+        if s.running { return s.mode == "idle" ? "Hold the throttle: the longer you hold, the harder it revs." : "Hold on…" }
         return "Hold the engine button to start it."
     }
 
@@ -249,11 +249,13 @@ struct EngineButton: View {
     }
 }
 
-/// Hold to rev, slide up for more.
+/// Gas pedal: hold it and the revs keep climbing (full throttle after ~1.8 s); let go and they drop.
+func pedal(_ seconds: Double) -> Double { 0.12 + 0.88 * pow(min(1, seconds / 1.8), 1.4) }
+
 struct ThrottlePad: View {
     let value: Double
     let set: (Double) -> Void
-    @State private var startY: CGFloat?
+    @State private var timer: Timer?
     @State private var lastTick = 0
 
     var body: some View {
@@ -266,7 +268,7 @@ struct ThrottlePad: View {
                     .frame(maxHeight: .infinity, alignment: .bottom)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Throttle").font(.system(size: 16, weight: .bold))
-                    Text("Hold. Slide up for more.").font(.system(size: 13)).foregroundColor(Color(white: 0.8))
+                    Text("Hold to rev. Longer = harder.").font(.system(size: 13)).foregroundColor(Color(white: 0.8))
                 }.padding(16)
                 if value > 0 {
                     Text("\(Int(value * 100))%").font(.system(size: 14, weight: .bold, design: .monospaced))
@@ -274,18 +276,30 @@ struct ThrottlePad: View {
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 22))
-            .overlay(RoundedRectangle(cornerRadius: 22).stroke(startY != nil ? Color.white.opacity(0.5) : line, lineWidth: 1.5))
+            .overlay(RoundedRectangle(cornerRadius: 22).stroke(timer != nil ? Color.white.opacity(0.5) : line, lineWidth: 1.5))
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0)
-                .onChanged { g in
-                    if startY == nil { startY = g.startLocation.y; Haptics.tap() }
-                    let v = min(1, max(0.08, 0.4 + Double((startY! - g.location.y) / (geo.size.height * 0.55))))
-                    let tick = Int(v * 10)
-                    if tick != lastTick { lastTick = tick; Haptics.medium(0.4) }
-                    set(v)
-                }
-                .onEnded { _ in startY = nil; lastTick = 0; set(0) })
+                .onChanged { _ in if timer == nil { press() } }
+                .onEnded { _ in release() })
         }
+    }
+
+    private func press() {
+        Haptics.tap()
+        let start = Date()
+        lastTick = 0
+        set(pedal(0))
+        timer = Timer.scheduledTimer(withTimeInterval: 1 / 60, repeats: true) { _ in
+            let v = pedal(Date().timeIntervalSince(start))
+            let tick = Int(v * 10)
+            if tick != lastTick { lastTick = tick; Haptics.medium(0.3 + 0.07 * CGFloat(tick)) }
+            set(v)
+        }
+    }
+
+    private func release() {
+        timer?.invalidate(); timer = nil
+        set(0)
     }
 }
 

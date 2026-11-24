@@ -38,6 +38,7 @@ final class Showroom: NSObject, ObservableObject {
     private var locked = true, doors = false, lights = 0
     private var running = false, starting = false
     private var rpm = 0.0, thr = 0.0, thrInput = 0.0, thrAt = Date.distantPast, localThr = 0.0
+    private var localHeld = false, localHoldT = 0.0
     private var gear = "N", speed = 0.0, mode = "idle", modeT = 0.0, cut = 0.0, shiftCut = 0.0
     private var lastThr = 0.0, prevSpeed = 0.0, roll = 0.0, pitch = 0.0
     private var crackle: [(t: CFTimeInterval, s: Float)] = []
@@ -382,6 +383,9 @@ final class Showroom: NSObject, ObservableObject {
 
     private func step(_ dt: Double) {
         if Date().timeIntervalSince(thrAt) > 0.7 { thrInput = 0 }
+        // on-screen "Hold to rev" works like the phone's pedal
+        localHoldT = localHeld ? localHoldT + dt : 0
+        localThr = localHeld ? 0.12 + 0.88 * pow(min(1, localHoldT / 1.8), 1.4) : 0
         var t = max(thrInput, localThr)
         if !running { t = 0 }
 
@@ -499,7 +503,7 @@ final class Showroom: NSObject, ObservableObject {
         synth.volume = on ? 0.85 : 0
     }
 
-    func setLocalThrottle(_ v: Double) { localThr = v }
+    func setLocalThrottle(_ v: Double) { localHeld = v > 0 }
     func userInteracted() { idleT = 0 }
 
     // MARK: - Frame loop
@@ -567,7 +571,7 @@ final class Showroom: NSObject, ObservableObject {
         if args.contains("-demoRev") {
             later(1.0) { self.cmd("unlock") }
             later(2.0) { self.cmd("lights"); self.cmd("engine") }
-            later(4.0) { self.localThr = 0.85 }
+            later(4.0) { self.localHeld = true }
         }
     }
 }

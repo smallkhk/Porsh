@@ -254,6 +254,9 @@ const keys = new Set();
 function step(dt, now) {
   // throttle: remote input expires if the phone goes quiet
   if (performance.now() - S.thrAt > 700) S.thrInput = 0;
+  // keyboard throttle behaves like the phone's pedal: the longer you hold, the harder it revs
+  S.keyRamp = S.keyHeld ? (S.keyRamp || 0) + dt : 0;
+  S.keyThr = S.keyHeld ? 0.12 + 0.88 * Math.pow(Math.min(1, S.keyRamp / 1.8), 1.4) : 0;
   let thr = Math.max(S.thrInput, S.keyThr);
   if (!S.running) thr = 0;
 
@@ -422,12 +425,12 @@ addEventListener('keydown', (e) => {
   else if (k === 'x') cmd('launch');
   else if (k === 'f') toggleFilm();
   else if (k === 'h') cmd('horn', true);
-  else if (k === ' ' || k === 'w' || k === 'arrowup') { S.keyThr = 1; e.preventDefault(); }
+  else if (k === ' ' || k === 'w' || k === 'arrowup') { S.keyHeld = true; e.preventDefault(); }
 });
 addEventListener('keyup', (e) => {
   const k = e.key.toLowerCase();
   if (k === 'h') cmd('horn', false);
-  if (k === ' ' || k === 'w' || k === 'arrowup') S.keyThr = 0;
+  if (k === ' ' || k === 'w' || k === 'arrowup') S.keyHeld = false;
 });
 
 // gauge
