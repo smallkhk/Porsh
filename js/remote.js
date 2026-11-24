@@ -1,7 +1,7 @@
 import { createRemote } from './link.js';
 
 const $ = (s) => document.querySelector(s);
-const PAINTS = ['#1b55e0', '#ff5a1f', '#c8101e', '#d9d6cf', '#9fe01b', '#0d0e12', '#5a2bd6', '#a9b0bb'];
+const PAINTS = ['#1b55e0', '#ff5a1f', '#c8101e', '#d9d6cf', '#9fe01b', '#0d0e12', '#5a2bd6', '#a9b0bb', '#123d2b', '#c9922e', '#16213e', '#9e0f1c'];
 const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
 
 /* ---------- haptics: native Taptic Engine in the iOS app, vibrate() on Android ---------- */
@@ -183,6 +183,22 @@ function start(code) {
   });
   $('#t-wing').addEventListener('click', () => S && send('wing', !S.wing));
   $('#t-livery').addEventListener('click', () => S && send('livery', !S.livery));
+  // car picker (list comes from the showroom)
+  const carsEl = $('#cars');
+  let carsKey = '';
+  function syncCars() {
+    const list = S.cars || [];
+    const key = list.map(c => c.id).join();
+    if (key !== carsKey) {
+      carsKey = key; carsEl.innerHTML = '';
+      list.forEach(c => {
+        const b = document.createElement('button'); b.className = 'car-opt'; b.dataset.id = c.id;
+        b.innerHTML = `<b>${c.name}</b><span>${c.tagline}</span>`;
+        b.addEventListener('click', () => { buzz(10); send('car', c.id); }); carsEl.appendChild(b);
+      });
+    }
+    carsEl.querySelectorAll('.car-opt').forEach(b => b.classList.toggle('on', b.dataset.id === S.car));
+  }
   const horn = $('#horn');
   horn.addEventListener('pointerdown', (e) => { e.preventDefault(); send('horn', true); buzz(30); });
   ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => horn.addEventListener(ev, () => send('horn', false)));
@@ -229,14 +245,16 @@ function start(code) {
         : 'Hold the engine button to start it.';
     }
 
-    // shift lights: 5000 → 8800 rpm
-    const r = S.rpm;
-    const n = S.running ? Math.max(0, Math.min(10, Math.ceil((r - 5000) / 380))) : 0;
-    const flash = r > 8800 && (performance.now() / 70 | 0) % 2 === 0;
+    // shift lights scale to this car's redline (55% → 98%)
+    const r = S.rpm, lim = S.limit || 9000, lo = lim * 0.55;
+    const n = S.running ? Math.max(0, Math.min(10, Math.ceil((r - lo) / ((lim * 0.98 - lo) / 10)))) : 0;
+    const flash = !S.ev && r > lim * 0.978 && (performance.now() / 70 | 0) % 2 === 0;
     shift.classList.toggle('flash', flash);
     leds.forEach((el, i) => { el.className = i < n ? (i < 4 ? 'g' : i < 7 ? 'y' : 'r') : ''; });
 
     sw.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.hex === S.paint));
+    syncCars();
+    if (S.carName) document.querySelector('#key .brand').innerHTML = `${S.carName} <small>${S.ev ? 'EV' : 'GT'}</small>`;
     $('#t-wing').classList.toggle('on', !!S.wing);
     $('#t-livery').classList.toggle('on', !!S.livery);
   }

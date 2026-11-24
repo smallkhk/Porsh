@@ -13,7 +13,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = +(process.env.PORT || 8080);
 const HOST = process.env.HOST || '0.0.0.0';
 const PUBLIC = new Set(['index.html', 'remote.html', 'manifest.webmanifest', 'remote.webmanifest', 'favicon.svg']);
-const PUBLIC_DIRS = ['css/', 'js/', 'icons/'];
+const PUBLIC_DIRS = ['css/', 'js/', 'icons/', 'cars/'];
 const TYPES = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.svg': 'image/svg+xml',

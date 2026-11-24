@@ -4,7 +4,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { createCar, DIM } from './car.js';
+import { createCar } from './car.js';
 import { EngineAudio } from './engine-audio.js';
 import { createHost, makeCode, publicBase } from './link.js';
 
@@ -119,7 +119,12 @@ for (let i = 0; i < 40; i++) {
 }
 
 /* car */
-const car = createCar();
+// car catalogue (shared with the iOS app)
+const CARS = (await (await fetch('cars/cars.json')).json()).cars;
+const carById = (id) => CARS.find(c => c.id === id) || CARS[0];
+const CAR_LIST = CARS.map(c => ({ id: c.id, name: c.name, tagline: c.tagline }));
+let spec = carById((() => { try { return localStorage.getItem('apex-car'); } catch { return null; } })());
+let car = createCar(spec);
 scene.add(car.root);
 
 /* post */
@@ -144,11 +149,17 @@ addEventListener('resize', resize); resize();
 /* =========================================================
    Simulation
    ========================================================= */
-const IDLE = 950, LIMIT = 9000;
-const GEAR_TOP = [0, 72, 118, 162, 207, 252, 305]; // km/h at limiter per gear
+// engine + gearing come from the selected car
+let IDLE, LIMIT, GEAR_TOP, ACCEL, VMAX, EV;
+function setEngine(e) {
+  IDLE = e.idle; LIMIT = e.limit; GEAR_TOP = e.gearTop; ACCEL = e.accel; VMAX = e.vmax; EV = e.type === 'ev';
+}
+setEngine(spec.engine);
+const gearLabel = () => (EV && S.gear !== 'N' ? 'D' : String(S.gear));
 const PAINTS = [
   ['Voltage Blue', '#1b55e0'], ['Lava Orange', '#ff5a1f'], ['Signal Red', '#c8101e'], ['Chalk', '#d9d6cf'],
   ['Acid Green', '#9fe01b'], ['Obsidian', '#0d0e12'], ['Ultraviolet', '#5a2bd6'], ['Arctic Silver', '#a9b0bb'],
+  ['Racing Green', '#123d2b'], ['Sunset Gold', '#c9922e'], ['Midnight', '#16213e'], ['Rosso', '#9e0f1c'],
 ];
 
 const S = {
@@ -159,14 +170,17 @@ const S = {
   mode: 'idle', // idle | arm | run | coast
   modeT: 0, cut: 0, shiftCut: 0,
   t100: null, vmax: 0,
-  paint: PAINTS[0][1], wing: true, livery: true, rim: '#1a1b1f',
+  paint: spec.paint, wing: spec.parts.wing === 'swan', livery: spec.stripe, rim: '#1a1b1f',
   remotes: 0,
 };
 const audio = new EngineAudio();
+audio.setCharacter(spec.engine);
+car.setPaint(S.paint); car.setLivery(S.livery); car.setWing(S.wing);
 let crackle = []; // scheduled pop times
 let lastThr = 0;
 
 function popBurst(n, spread = 0.7, strength = 1) {
+  if (EV) return; // electric: no combustion, no pops
   const now = performance.now() / 1000;
   for (let i = 0; i < n; i++) crackle.push({ t: now + Math.random() * spread, s: strength * (0.5 + Math.random() * 0.6) });
 }
@@ -226,23 +240,49 @@ function cmd(name, arg) {
     case 'wing': S.wing = !!arg; car.setWing(S.wing); $('#opt-wing').checked = S.wing; setStatus(false); break;
     case 'livery': S.livery = !!arg; car.setLivery(S.livery); $('#opt-livery').checked = S.livery; setStatus(false); break;
     case 'rim': S.rim = arg; car.setRim(arg); syncRimUI(); setStatus(false); break;
+    case 'car':
+      if (arg === spec.id) return;
+      if (S.running || S.starting) return deny('Switch the engine off first');
+      if (S.mode !== 'idle' || S.speed > 0) return deny('Not while moving');
+      switchCar(arg);
+      break;
   }
+}
+
+/** Swap the whole car: body, parts, engine sound, gearing, gauge. */
+function switchCar(id) {
+  spec = carById(id);
+  scene.remove(car.root);
+  car.root.traverse(o => { if (o.geometry) o.geometry.dispose(); });
+  car = createCar(spec);
+  scene.add(car.root);
+  setEngine(spec.engine);
+  audio.setCharacter(spec.engine);
+  S.paint = spec.paint; S.livery = spec.stripe; S.wing = spec.parts.wing === 'swan';
+  car.setPaint(S.paint); car.setLivery(S.livery); car.setWing(S.wing); car.setRim(S.rim);
+  if (!S.locked) { car.setDRL(true); car.setLights(S.lights); car.sweep(1); }
+  if (S.doors) car.setDoors(true);
+  S.rpm = 0; S.gear = 'N';
+  drawGauge(); syncCarUI(); syncPaintUI();
+  $('#opt-wing').checked = S.wing; $('#opt-livery').checked = S.livery;
+  try { localStorage.setItem('apex-car', spec.id); } catch {}
+  toast(`${spec.name} · ${spec.spec}`);
+  audio.thud(0.7, 0.8);
+  setStatus();
 }
 
 function startEngine() {
   S.starting = true; S.modeT = 0;
-  audio.starter(1.0);
+  if (EV) audio.chirp('unlock'); else audio.starter(1.0);
   car.setDRL(true);
-  if (S.doors) { /* fine, revs with doors up look great */ }
   setStatus();
   setTimeout(() => {
     if (!S.starting) return;
     S.starting = false; S.running = true;
-    S.rpm = 2600; // catch + flare
-    popBurst(3, 0.3, 0.8);
-    car.flames(0.6);
+    if (!EV) { S.rpm = 2600; popBurst(3, 0.3, 0.8); car.flames(0.6); } // catch + flare
+    else audio.chirp('go'); // "Ready"
     setStatus();
-  }, 1000);
+  }, EV ? 500 : 1000);
 }
 function stopEngine() {
   S.starting = false; S.running = false; S.mode = 'idle'; S.gear = 'N';
@@ -267,21 +307,25 @@ function step(dt, now) {
     S.rpm = Math.max(0, S.rpm - dt * 2600);
   } else if (S.mode === 'idle') {
     S.gear = 'N';
-    const target = IDLE + Math.pow(thr, 1.15) * (LIMIT + 300 - IDLE);
+    const target = IDLE + Math.pow(thr, 1.15) * (LIMIT + (EV ? 0 : 300) - IDLE);
+    const rate = LIMIT / 9000;
     if (S.cut > 0) { S.cut -= dt; thr = 0; S.rpm -= dt * 9000; }
-    else if (S.rpm < target) S.rpm += Math.min(target - S.rpm, dt * (6000 + 16000 * thr));
-    else S.rpm -= Math.min(S.rpm - target, dt * 6200);
-    if (S.rpm >= LIMIT) { S.rpm = LIMIT; S.cut = 0.055; limiterHit(); }
-    S.rpm += (Math.random() - 0.5) * 18;
+    else if (S.rpm < target) S.rpm += Math.min(target - S.rpm, dt * (6000 + 16000 * thr) * rate);
+    else S.rpm -= Math.min(S.rpm - target, dt * 6200 * rate);
+    if (S.rpm >= LIMIT) { S.rpm = LIMIT; if (!EV) { S.cut = 0.055; limiterHit(); } }
+    if (!EV) S.rpm += (Math.random() - 0.5) * 18;
     // lift-off crackle
     if (lastThr > 0.45 && thr < 0.1 && S.rpm > 4500) popBurst(4 + (Math.random() * 5 | 0), 0.9, 1);
   } else if (S.mode === 'arm') {
     S.modeT += dt;
-    const target = 5200;
-    if (S.cut > 0) { S.cut -= dt; S.rpm -= dt * 8000; }
-    else S.rpm += Math.min(target - S.rpm, dt * 14000);
-    if (S.rpm >= target - 5 && S.cut <= 0) { S.cut = 0.07 + Math.random() * 0.05; if (Math.random() < 0.5) { popBurst(1, 0.05, 0.7); } }
-    thr = 1;
+    if (EV) { S.rpm = Math.max(0, S.rpm - dt * 8000); thr = 0.15; } // motors wait silently, torque arrives on GO
+    else {
+      const target = 5200;
+      if (S.cut > 0) { S.cut -= dt; S.rpm -= dt * 8000; }
+      else S.rpm += Math.min(target - S.rpm, dt * 14000);
+      if (S.rpm >= target - 5 && S.cut <= 0) { S.cut = 0.07 + Math.random() * 0.05; if (Math.random() < 0.5) { popBurst(1, 0.05, 0.7); } }
+      thr = 1;
+    }
     const n = 3 - Math.floor(S.modeT);
     showCountdown(n > 0 ? String(n) : 'GO');
     if (S.modeT >= 3) { S.mode = 'run'; S.modeT = 0; S.gear = 1; S.speed = 0; setStatus(); }
@@ -289,15 +333,15 @@ function step(dt, now) {
     S.modeT += dt; thr = 1;
     const g = S.gear;
     const v = S.speed / 3.6;
-    const vmax = 330 / 3.6;
-    let a = [0, 10.5, 8.6, 7.0, 5.9, 4.9, 4.0][g] * (1 - Math.pow(v / vmax, 2.2));
+    const vmax = VMAX / 3.6;
+    let a = ACCEL[g] * (1 - Math.pow(v / vmax, 2.2));
     if (S.shiftCut > 0) { S.shiftCut -= dt; a = 0.4; thr = 0.1; }
     S.speed += a * dt * 3.6;
     const gearRpm = (S.speed / GEAR_TOP[g]) * LIMIT;
-    const slip = Math.max(0, 1 - S.modeT / 0.55) * 5200;
+    const slip = EV ? 0 : Math.max(0, 1 - S.modeT / 0.55) * 5200;
     const want = Math.max(IDLE, gearRpm, slip);
     S.rpm += (want - S.rpm) * Math.min(1, dt * (S.shiftCut > 0 ? 18 : 30));
-    if (S.rpm > 8750 && g < 6 && S.shiftCut <= 0) {
+    if (S.rpm > LIMIT - 250 && g < GEAR_TOP.length - 1 && S.shiftCut <= 0) {
       S.gear = g + 1; S.shiftCut = 0.11; popBurst(2, 0.12, 1.1); car.flames(1); shiftHit();
     }
     if (S.t100 === null && S.speed >= 100) S.t100 = S.modeT;
@@ -334,6 +378,7 @@ function step(dt, now) {
 
 let limiterAt = 0;
 function limiterHit() {
+  if (EV) return;
   const n = performance.now();
   if (Math.random() < 0.6) { audio.pop(0.8); car.flames(0.9); }
   if (n - limiterAt > 250) { limiterAt = n; host && host.send({ t: 'evt', kind: 'limiter' }); }
@@ -399,6 +444,19 @@ function syncPaintUI() {
   paintsEl.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.hex === S.paint));
   const p = PAINTS.find(p => p[1] === S.paint); $('#paint-name').textContent = p ? p[0] : S.paint;
 }
+const carsEl = $('#cars');
+CARS.forEach(c => {
+  const b = document.createElement('button'); b.className = 'car-opt'; b.dataset.id = c.id;
+  b.innerHTML = `<b>${c.name}</b><span>${c.tagline}</span><small>${c.spec}</small>`;
+  b.addEventListener('click', () => cmd('car', c.id)); carsEl.appendChild(b);
+});
+function syncCarUI() {
+  carsEl.querySelectorAll('.car-opt').forEach(b => b.classList.toggle('on', b.dataset.id === spec.id));
+  const [n1, ...rest] = spec.name.split(' ');
+  $('.model').innerHTML = `${n1} ${rest.join(' ')} <small>${spec.parts.wing === 'swan' ? 'GT' : EV ? 'EV' : 'GT'}</small>`;
+  document.title = `${spec.name} — Showroom`;
+}
+syncCarUI();
 function syncRimUI() { document.querySelectorAll('#rims button').forEach(b => b.classList.toggle('on', b.dataset.rim === S.rim)); }
 syncPaintUI();
 
@@ -435,7 +493,8 @@ addEventListener('keyup', (e) => {
 
 // gauge
 const gsvg = $('#gauge-svg');
-const GA0 = 225, GSWEEP = 270, GMAX = 10000, GCX = 110, GCY = 112, GR = 88;
+const GA0 = 225, GSWEEP = 270, GCX = 110, GCY = 112, GR = 88;
+let GMAX = 10000;
 const ang = (rpm) => (GA0 - (rpm / GMAX) * GSWEEP) * Math.PI / 180;
 const pt = (a, r) => [GCX + Math.cos(a) * r, GCY - Math.sin(a) * r];
 const arcPath = (r0, r1, R) => {
@@ -443,15 +502,22 @@ const arcPath = (r0, r1, R) => {
   const large = ((r1 - r0) / GMAX) * GSWEEP > 180 ? 1 : 0;
   return `M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${R} ${R} 0 ${large} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
 };
-gsvg.innerHTML = `<defs><linearGradient id="g-arc" gradientUnits="userSpaceOnUse" x1="20" y1="0" x2="200" y2="0"><stop offset="0" stop-color="#7fb2ff"/><stop offset=".7" stop-color="#ffffff"/><stop offset="1" stop-color="#ff5b5b"/></linearGradient></defs>
+function drawGauge() {
+  GMAX = LIMIT > 10000 ? Math.ceil((LIMIT + 2000) / 2000) * 2000 : 10000;
+  const step = GMAX > 10000 ? 2000 : 1000, n = GMAX / step;
+  gsvg.innerHTML = `<defs><linearGradient id="g-arc" gradientUnits="userSpaceOnUse" x1="20" y1="0" x2="200" y2="0"><stop offset="0" stop-color="#7fb2ff"/><stop offset=".7" stop-color="#ffffff"/><stop offset="1" stop-color="#ff5b5b"/></linearGradient></defs>
   <path class="arc-bg" d="${arcPath(0, GMAX, GR)}"/>
-  <path class="arc-red" d="${arcPath(LIMIT - 1000, GMAX, GR)}"/>
+  <path class="arc-red" d="${arcPath(EV ? GMAX : LIMIT - 1000, GMAX, GR)}"/>
   <path class="arc" id="arc" d=""/>
-  ${Array.from({ length: 11 }, (_, i) => {
-    const a = ang(i * 1000), [x0, y0] = pt(a, GR - 12), [x1, y1] = pt(a, GR - 18), [lx, ly] = pt(a, GR - 30);
-    return `<line class="tick" x1="${x0}" y1="${y0}" x2="${x1}" y2="${y1}"/><text class="tick-l" x="${lx}" y="${ly}">${i}</text>`;
+  ${Array.from({ length: n + 1 }, (_, i) => {
+    const a = ang(i * step), [x0, y0] = pt(a, GR - 12), [x1, y1] = pt(a, GR - 18), [lx, ly] = pt(a, GR - 30);
+    return `<line class="tick" x1="${x0}" y1="${y0}" x2="${x1}" y2="${y1}"/><text class="tick-l" x="${lx}" y="${ly}">${i * step / 1000}</text>`;
   }).join('')}`;
-const arcEl = $('#arc');
+  arcEl = $('#arc');
+}
+let arcEl;
+drawGauge();
+
 
 let uiAcc = 0;
 function updateUI(dt) {
@@ -459,8 +525,8 @@ function updateUI(dt) {
   const on = S.running || S.starting || S.rpm > 50;
   $('#gauge').classList.toggle('on', on);
   arcEl.setAttribute('d', S.rpm > 30 ? arcPath(0, Math.min(GMAX, S.rpm), GR) : '');
-  $('#gauge').classList.toggle('limiter', S.rpm > LIMIT - 150);
-  $('#gear').textContent = S.gear;
+  $('#gauge').classList.toggle('limiter', !EV && S.rpm > LIMIT - 150);
+  $('#gear').textContent = gearLabel();
   $('#rpm').textContent = Math.round(S.rpm).toLocaleString('en-US');
   $('#speed').textContent = Math.round(S.speed);
   $('#t100').textContent = S.t100 ? `0–100 in ${S.t100.toFixed(2)} s` : '';
@@ -513,8 +579,9 @@ let stateAcc = 0;
 function sendState(force) {
   if (!host) return;
   host.send({
-    t: 'state', locked: S.locked, doors: S.doors, lights: S.lights, running: S.running, starting: S.starting,
-    rpm: Math.round(S.rpm), gear: S.gear, speed: Math.round(S.speed), mode: S.mode, t100: S.t100,
+    t: 'state', car: spec.id, carName: spec.name, limit: LIMIT, ev: EV, cars: CAR_LIST,
+    locked: S.locked, doors: S.doors, lights: S.lights, running: S.running, starting: S.starting,
+    rpm: Math.round(S.rpm), gear: gearLabel(), speed: Math.round(S.speed), mode: S.mode, t100: S.t100,
     paint: S.paint, wing: S.wing, livery: S.livery, hint: S.hint, cd: S.mode === 'arm' ? Math.max(0, 3 - Math.floor(S.modeT)) : null,
   });
 }
@@ -548,7 +615,7 @@ function frame() {
 
   // wheels + rolling road
   const v = S.speed / 3.6;
-  car.spinWheels((v / DIM.wheelR) * dt * (S.mode === 'run' && S.modeT < 0.6 ? 1.6 : 1)); // a bit of wheelspin off the line
+  car.spinWheels((v / spec.dims.wheelR) * dt * (S.mode === 'run' && S.modeT < 0.6 ? 1.6 : 1)); // a bit of wheelspin off the line
   floorTex.offset.x += (v * dt) / (80 / 24);
   streakMat.opacity = Math.min(0.55, v / 50);
   streaks.children.forEach(s => { s.position.x -= v * dt * 1.0; if (s.position.x < -20) s.position.x += 40; });

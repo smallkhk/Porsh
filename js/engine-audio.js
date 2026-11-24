@@ -41,19 +41,9 @@ export class EngineAudio {
     this.verbSend = ctx.createGain(); this.verbSend.gain.value = 0.18;
     this.verbSend.connect(verb).connect(this.master);
 
-    // ---- engine core: periodic wave at half crank freq (one 4-stroke cycle)
-    // Harmonic 6 = firing frequency of a six; sprinkle half-orders for grit.
-    const N = 48, re = new Float32Array(N), im = new Float32Array(N);
-    const amp = (k) => {
-      let a = 0.05 / k;
-      if (k % 6 === 0) a += 1.0 / (k / 6);         // firing pulses
-      if (k % 3 === 0) a += 0.28 / Math.sqrt(k);    // 1.5 order lope
-      if (k % 2 === 0) a += 0.12 / Math.sqrt(k);
-      return a;
-    };
-    for (let k = 1; k < N; k++) { im[k] = amp(k) * (k % 4 === 1 ? -1 : 1); re[k] = amp(k) * 0.3; }
-    const wave = ctx.createPeriodicWave(re, im);
-
+    // ---- engine core: periodic wave at half crank freq (one 4-stroke cycle).
+    // Harmonic `cyl` = firing frequency; half-orders add the lumpy "lope".
+    const wave = this._wave();
     this.oscA = ctx.createOscillator(); this.oscA.setPeriodicWave(wave);
     this.oscB = ctx.createOscillator(); this.oscB.setPeriodicWave(wave);
     this.oscB.detune.value = 9;
@@ -95,9 +85,47 @@ export class EngineAudio {
     this.scream.connect(sf).connect(this.screamGain).connect(this.master);
     this.screamGain.connect(this.verbSend);
 
+    // ---- electric motor (Volt): two whine partials + inverter buzz, no combustion
+    this.evGain = ctx.createGain(); this.evGain.gain.value = 0;
+    this.evA = ctx.createOscillator(); this.evA.type = 'sine';
+    this.evB = ctx.createOscillator(); this.evB.type = 'sine';
+    this.evC = ctx.createOscillator(); this.evC.type = 'sawtooth';
+    const evCf = ctx.createBiquadFilter(); evCf.type = 'bandpass'; evCf.Q.value = 6; this.evCf = evCf;
+    const gEa = ctx.createGain(); gEa.gain.value = 0.6;
+    const gEb = ctx.createGain(); gEb.gain.value = 0.25;
+    const gEc = ctx.createGain(); gEc.gain.value = 0.08;
+    this.evA.connect(gEa).connect(this.evGain);
+    this.evB.connect(gEb).connect(this.evGain);
+    this.evC.connect(evCf).connect(gEc).connect(this.evGain);
+    this.evGain.connect(this.master); this.evGain.connect(this.verbSend);
+
     const t = ctx.currentTime;
-    [this.oscA, this.oscB, this.oscSub, this.scream].forEach(o => { o.frequency.value = 10; o.start(t); });
+    [this.oscA, this.oscB, this.oscSub, this.scream, this.evA, this.evB, this.evC].forEach(o => { o.frequency.value = 10; o.start(t); });
     n.start(t);
+  }
+
+  /** Engine character from cars.json: { type: 'ice'|'ev', cyl, lope, sub, scream, limit } */
+  setCharacter(engine) {
+    this.char = engine;
+    if (this.ctx && this.oscA) {
+      const w = this._wave();
+      this.oscA.setPeriodicWave(w); this.oscB.setPeriodicWave(w);
+    }
+  }
+
+  _wave() {
+    const c = this.char || { cyl: 6, lope: 0.28 };
+    const cyl = c.cyl || 6, half = Math.max(1, cyl / 2), lope = c.lope ?? 0.28;
+    const N = Math.max(48, cyl * 4 + 1), re = new Float32Array(N), im = new Float32Array(N);
+    const amp = (k) => {
+      let a = 0.05 / k;
+      if (k % cyl === 0) a += 1.0 / (k / cyl);          // firing pulses
+      if (k % half === 0) a += lope / Math.sqrt(k);      // half-order lope
+      if (k % 2 === 0) a += 0.12 / Math.sqrt(k);
+      return a;
+    };
+    for (let k = 1; k < N; k++) { im[k] = amp(k) * (k % 4 === 1 ? -1 : 1); re[k] = amp(k) * 0.3; }
+    return this.ctx.createPeriodicWave(re, im);
   }
 
   _curve(k) {
@@ -129,19 +157,35 @@ export class EngineAudio {
   update(rpm, load, on, at) {
     if (!this.ctx || !this.enabled) return;
     const t = at ?? this.ctx.currentTime, k = 0.025;
+    const C = this.char || { type: 'ice', cyl: 6, sub: 0.55, scream: 1, limit: 9000 };
+    const live = on ? 1 : 0;
+    if (C.type === 'ev') {
+      // motor whine rises with motor speed; louder under load
+      const m = Math.max(rpm, 1) / 60, r = Math.min(1, rpm / (C.limit || 16000));
+      this.evA.frequency.setTargetAtTime(40 + m * 2, t, k);
+      this.evB.frequency.setTargetAtTime(60 + m * 3.03, t, k);
+      this.evC.frequency.setTargetAtTime(80 + m * 9, t, k);
+      this.evCf.frequency.setTargetAtTime(600 + m * 9, t, k);
+      this.evGain.gain.setTargetAtTime(live * (0.025 + 0.2 * Math.pow(r, 0.8) + 0.16 * load * (0.3 + 0.7 * r)), t, 0.04);
+      this.engineGain.gain.setTargetAtTime(0, t, 0.03);
+      this.intakeGain.gain.setTargetAtTime(0, t, k);
+      this.screamGain.gain.setTargetAtTime(0, t, k);
+      return;
+    }
+    this.evGain.gain.setTargetAtTime(0, t, 0.03);
     const crank = Math.max(rpm, 1) / 60;
     const cycle = crank / 2;
     this.oscA.frequency.setTargetAtTime(cycle, t, k);
     this.oscB.frequency.setTargetAtTime(cycle, t, k);
     this.oscSub.frequency.setTargetAtTime(crank * 1.5, t, k);
-    this.scream.frequency.setTargetAtTime(crank * 3, t, k);
+    const fire = (C.cyl || 6) / 2; // firing events per crank revolution
+    this.scream.frequency.setTargetAtTime(crank * fire, t, k);
 
-    const r = Math.min(1, rpm / 9000);
+    const r = Math.min(1, rpm / (C.limit || 9000));
     this.tone.frequency.setTargetAtTime(260 + r * 2600 + load * 1700, t, k);
     this.preGain.gain.setTargetAtTime(0.9 + load * 1.6, t, k);
-    this.subGain.gain.setTargetAtTime(0.55 * (1 - r) + 0.1, t, k);
+    this.subGain.gain.setTargetAtTime((C.sub ?? 0.55) * (1 - r) + 0.1, t, k);
 
-    const live = on ? 1 : 0;
     // the harder you rev, the louder it gets: ~20 dB from idle to full-throttle redline
     const vol = live * (0.055 + 0.32 * Math.pow(r, 1.3) + 0.3 * load * (0.35 + 0.65 * r)) * Math.min(1, rpm / 500);
     this.engineGain.gain.setTargetAtTime(vol, t, 0.03);
@@ -149,9 +193,9 @@ export class EngineAudio {
     this.intake.frequency.setTargetAtTime(500 + crank * 9, t, k);
     this.intakeGain.gain.setTargetAtTime(live * load * (0.02 + 0.3 * r * r), t, k);
 
-    this.screamFilter.frequency.setTargetAtTime(crank * 6, t, k);
+    this.screamFilter.frequency.setTargetAtTime(crank * fire * 2, t, k);
     const s = Math.max(0, (r - 0.55) / 0.45);
-    this.screamGain.gain.setTargetAtTime(live * s * s * (0.05 + 0.09 * load), t, k);
+    this.screamGain.gain.setTargetAtTime(live * s * s * (0.05 + 0.09 * load) * (C.scream ?? 1), t, k);
   }
 
   /** Exhaust pop / crackle */
