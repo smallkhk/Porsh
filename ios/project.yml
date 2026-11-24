@@ -1,0 +1,61 @@
+# XcodeGen spec: `xcodegen` turns this into APEX.xcodeproj (done in CI).
+name: APEX
+options:
+  bundleIdPrefix: app.apex9r
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+targets:
+  APEXKey:
+    type: application
+    platform: iOS
+    sources: [Key, Shared]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.apex9r.key
+        PRODUCT_NAME: APEXKey
+        TARGETED_DEVICE_FAMILY: "1"
+    info:
+      path: Key/Info.plist
+      properties:
+        CFBundleDisplayName: APEX Key
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        NSCameraUsageDescription: Scan the QR code on the showroom screen to pair your key.
+        ITSAppUsesNonExemptEncryption: false
+        UIUserInterfaceStyle: Dark
+    scheme: {}
+  APEXViewer:
+    type: application
+    platform: iOS
+    sources: [Viewer, Shared]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.apex9r.viewer
+        PRODUCT_NAME: APEXViewer
+        TARGETED_DEVICE_FAMILY: "1,2"
+    info:
+      path: Viewer/Info.plist
+      properties:
+        CFBundleDisplayName: APEX 9R
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UIRequiresFullScreen: true
+        UIStatusBarHidden: true
+        UIViewControllerBasedStatusBarAppearance: false
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        ITSAppUsesNonExemptEncryption: false
+        UIUserInterfaceStyle: Dark
+    scheme: {}

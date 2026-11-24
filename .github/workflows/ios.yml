@@ -1,72 +1,88 @@
-# Builds the two native iOS apps:
-#   APEX 9R  (viewer, iPad/iPhone, landscape)
-#   APEX Key (controller, iPhone, portrait, native haptics + QR scanner)
-#
-# Set your VPS domain once:  Settings → Secrets and variables → Actions → Variables → APEX_DOMAIN
-# (e.g. apex.example.com), or type it when you run the workflow by hand.
-#
-# Output: unsigned .ipa files (Actions run → Artifacts). Install them with Sideloadly or
-# AltStore using your Apple ID. TestFlight/App Store needs an Apple Developer account.
+# Native Swift iOS apps:
+#   APEX 9R  (APEXViewer) — SceneKit showroom for iPad/iPhone, landscape
+#   APEX Key (APEXKey)    — SwiftUI controller for iPhone, native haptics + QR scanner
+# Output (Actions run → Artifacts):
+#   APEX-ipa          unsigned .ipa files → install with Sideloadly/AltStore (your Apple ID)
+#   APEX-screenshots  simulator screenshots of both apps
 name: iOS apps
 
 on:
-  workflow_dispatch:
-    inputs:
-      domain:
-        description: "VPS domain the apps connect to (blank = use the APEX_DOMAIN variable)"
-        required: false
   push:
-    tags: ["v*"]
+    paths: ["ios/**", ".github/workflows/ios.yml"]
+  workflow_dispatch:
 
 jobs:
   build:
-    name: Build ${{ matrix.app }}
     runs-on: macos-15
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        app: [viewer, key]
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install
-        run: npm ci --no-audit --no-fund
-
-      - name: Web bundle
-        env:
-          APEX_DOMAIN: ${{ inputs.domain || vars.APEX_DOMAIN }}
-        run: node scripts/build-apps.mjs ${{ matrix.app }}
+      - name: Install XcodeGen
+        run: brew install xcodegen
 
       - name: Generate Xcode project
-        working-directory: apps/${{ matrix.app }}
-        run: npx cap add ios
+        working-directory: ios
+        run: |
+          xcodebuild -version
+          xcodegen
 
-      - name: Icon, orientation, permissions
-        run: node scripts/patch-ios.mjs ${{ matrix.app }}
-
-      - name: Build (unsigned)
-        working-directory: apps/${{ matrix.app }}/ios/App
+      - name: Build for devices (unsigned)
+        working-directory: ios
         run: |
           set -o pipefail
-          xcodebuild -version
-          FAMILY="1,2"; [ "${{ matrix.app }}" = "key" ] && FAMILY="1"
-          xcodebuild -project App.xcodeproj -scheme App -configuration Release \
-            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
-            TARGETED_DEVICE_FAMILY="$FAMILY" \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            -quiet build
-          mkdir -p Payload
-          cp -R build/Build/Products/Release-iphoneos/App.app Payload/
-          zip -qry "$GITHUB_WORKSPACE/APEX-${{ matrix.app }}-unsigned.ipa" Payload
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          for s in APEXViewer APEXKey; do
+            echo "::group::$s"
+            xcodebuild -project APEX.xcodeproj -scheme "$s" -configuration Release \
+              -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build/device \
+              CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" -quiet build
+            rm -rf Payload && mkdir Payload
+            cp -R "build/device/Build/Products/Release-iphoneos/$s.app" Payload/
+            zip -qry "$GITHUB_WORKSPACE/out/$s-unsigned.ipa" Payload
+            echo "::endgroup::"
+          done
+          ls -la "$GITHUB_WORKSPACE/out"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: APEX-${{ matrix.app }}-ipa
-          path: APEX-${{ matrix.app }}-unsigned.ipa
+          name: APEX-ipa
+          path: out/*.ipa
           retention-days: 30
+
+      - name: Simulator screenshots
+        continue-on-error: true
+        working-directory: ios
+        run: |
+          set -x
+          for s in APEXViewer APEXKey; do
+            xcodebuild -project APEX.xcodeproj -scheme "$s" -configuration Debug \
+              -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build/sim -quiet build
+          done
+          mkdir -p "$GITHUB_WORKSPACE/shots"
+          uuid() { xcrun simctl list devices available | grep -m1 -E "$1" | grep -oE '[0-9A-F-]{36}'; }
+          IPAD=$(uuid "iPad Pro 13|iPad Pro \(12.9|iPad Air 13|iPad Pro")
+          IPHONE=$(uuid "iPhone 16 Pro \(|iPhone 16 \(|iPhone 15 Pro \(|iPhone")
+          echo "iPad=$IPAD iPhone=$IPHONE"
+          xcrun simctl boot "$IPAD"; xcrun simctl boot "$IPHONE"
+          xcrun simctl bootstatus "$IPAD" -b; xcrun simctl bootstatus "$IPHONE" -b
+          xcrun simctl install "$IPAD" build/sim/Build/Products/Debug-iphonesimulator/APEXViewer.app
+          xcrun simctl install "$IPHONE" build/sim/Build/Products/Debug-iphonesimulator/APEXKey.app
+          shot() { xcrun simctl io "$1" screenshot "$GITHUB_WORKSPACE/shots/$2.png"; }
+          xcrun simctl launch "$IPAD" app.apex9r.viewer; sleep 14; shot "$IPAD" viewer-1-locked
+          xcrun simctl terminate "$IPAD" app.apex9r.viewer
+          xcrun simctl launch "$IPAD" app.apex9r.viewer -demoDoors; sleep 16; shot "$IPAD" viewer-2-doors-lights
+          xcrun simctl terminate "$IPAD" app.apex9r.viewer
+          xcrun simctl launch "$IPAD" app.apex9r.viewer -demoRev; sleep 9; shot "$IPAD" viewer-3-revving
+          xcrun simctl launch "$IPHONE" app.apex9r.key -preview; sleep 6; shot "$IPHONE" key-1-running
+          xcrun simctl terminate "$IPHONE" app.apex9r.key
+          xcrun simctl launch "$IPHONE" app.apex9r.key; sleep 5; shot "$IPHONE" key-2-pair
+          ls -la "$GITHUB_WORKSPACE/shots"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: APEX-screenshots
+          path: shots/*.png
+          if-no-files-found: ignore
+          retention-days: 14
