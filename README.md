@@ -17,6 +17,20 @@ There are three ways to run it:
 
 ## 1. Run it on your VPS
 
+**One command** (Ubuntu/Debian, as root). It installs everything and gives you
+free HTTPS at `https://posh.<your-ip>.sslip.io`. No domain needed:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/smallkhk/Porsh/claude/pensive-rubin-3oshi4/install.sh | sudo bash
+```
+
+When it finishes, it prints the viewer and controller links. Re-run the same
+command to update. Options: `SUB=posh` (default), `DOMAIN=...` to use your own
+host, `PORT=8787`. If nginx already uses ports 80/443, the script adds an nginx
+site with a Let's Encrypt certificate instead of installing Caddy.
+
+### Manual / Docker
+
 The VPS runs `server/server.js`. It serves the site and also relays messages
 between the iPad and the iPhone over a WebSocket. That's more reliable than
 peer-to-peer: it works on mobile data and through strict networks, with no

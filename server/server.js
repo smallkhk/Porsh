@@ -11,6 +11,7 @@ import { WebSocketServer } from 'ws';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = +(process.env.PORT || 8080);
+const HOST = process.env.HOST || '0.0.0.0';
 const PUBLIC = new Set(['index.html', 'remote.html', 'manifest.webmanifest', 'remote.webmanifest', 'favicon.svg']);
 const PUBLIC_DIRS = ['css/', 'js/', 'icons/'];
 const TYPES = {
@@ -82,4 +83,4 @@ setInterval(() => {
   }
 }, 25000);
 
-server.listen(PORT, () => console.log(`APEX 9R listening on :${PORT}`));
+server.listen(PORT, HOST, () => console.log(`APEX 9R listening on ${HOST}:${PORT}`));
