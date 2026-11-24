@@ -1,0 +1,15 @@
+# Alternative to Docker: run with systemd behind your existing nginx/Caddy.
+#   sudo cp deploy/apex9r.service /etc/systemd/system/ && sudo systemctl enable --now apex9r
+[Unit]
+Description=APEX 9R showroom + relay
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/apex9r
+ExecStart=/usr/bin/node server/server.js
+Environment=PORT=8080 NODE_ENV=production
+Restart=always
+User=www-data
+
+[Install]
+WantedBy=multi-user.target

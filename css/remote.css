@@ -20,7 +20,7 @@ main { max-width: 460px; margin: 0 auto; padding: max(18px, env(safe-area-inset-
 .brand small, .brand span { color: var(--muted); font-weight: 500; }
 
 /* pairing */
-#pair { min-height: 100vh; display: grid; place-items: center; }
+#pair { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; }
 .pair-card { width: 100%; }
 .pair-card h1 { font-size: 40px; letter-spacing: -0.04em; margin: 28px 0 10px; }
 .pair-card p { color: var(--muted); line-height: 1.5; margin: 0 0 26px; }
@@ -107,3 +107,14 @@ header { display: flex; justify-content: space-between; align-items: center; }
   #title { font-size: 52px; }
   .drive { grid-template-columns: 0.85fr 1fr; }
 }
+
+.scan-btn { margin-top: 14px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px; padding: 15px; border-radius: 16px; border: 1.5px solid var(--line); font-weight: 600; }
+.scan-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+#scanner { position: fixed; inset: 0; z-index: 50; background: #000; display: grid; place-items: center; }
+#scanner video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.scan-frame { position: relative; width: 64vmin; height: 64vmin; border-radius: 24px; box-shadow: 0 0 0 100vmax rgba(0,0,0,.55); border: 2px solid rgba(255,255,255,.85); }
+#scan-msg { position: absolute; left: 20px; right: 20px; bottom: calc(110px + env(safe-area-inset-bottom)); text-align: center; color: #fff; font-weight: 500; margin: 0; }
+#scan-close { position: absolute; bottom: calc(40px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); background: rgba(255,255,255,.15); padding: 12px 28px; border-radius: 99px; font-weight: 600; backdrop-filter: blur(10px); }
+.car-line { color: var(--muted); font-size: 12px; margin: 0 2px 10px; }
+.car-line b { font-family: var(--mono); color: #cfd3dc; letter-spacing: .1em; }
+.link { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; font-size: 12px; padding: 0; }

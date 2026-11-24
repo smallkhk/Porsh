@@ -128,3 +128,5 @@ body.film header.top { z-index: 12; }
   .g-gear { font-size: 38px; }
   .foot { font-size: 10px; }
 }
+
+.link-btn.small { margin: 2px 0 0; display: inline; font-size: 11px; padding: 0; }

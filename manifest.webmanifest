@@ -1,0 +1,14 @@
+{
+  "name": "APEX 9R Showroom",
+  "short_name": "APEX 9R",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#07080b",
+  "theme_color": "#07080b",
+  "icons": [
+    { "src": "icons/viewer-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/viewer-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

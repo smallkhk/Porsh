@@ -8,10 +8,14 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2307080b'/%3E%3Cpath d='M7 22 16 8l9 14h-4l-5-8-5 8z' fill='%23fff'/%3E%3C/svg%3E" />
+  <link rel="manifest" href="remote.webmanifest" />
+  <link rel="apple-touch-icon" href="icons/key-180.png" />
+  <meta name="apple-mobile-web-app-title" content="APEX Key" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="css/remote.css" />
+  <script src="js/config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
 <body>
@@ -20,13 +24,21 @@
     <div class="pair-card">
       <div class="brand">APEX <span>9R</span></div>
       <h1>Pair your key</h1>
-      <p>Open the showroom on your computer and scan its QR code, or type the 5-letter code shown under <b>Key</b>.</p>
+      <p>Open the showroom on your iPad or computer, then scan its QR code or type the 5-letter code shown under <b>Key</b>. You only pair once.</p>
       <form id="pair-form" autocomplete="off">
         <input id="pair-code" maxlength="5" placeholder="ABCDE" autocapitalize="characters" spellcheck="false" inputmode="text" />
         <button type="submit">Connect</button>
       </form>
+      <button class="scan-btn" id="scan" type="button"><svg viewBox="0 0 24 24"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M8 12h8"/></svg>Scan QR code</button>
     </div>
   </main>
+
+  <div id="scanner" hidden>
+    <video id="scan-video" muted playsinline></video>
+    <div class="scan-frame"></div>
+    <p id="scan-msg"></p>
+    <button id="scan-close" type="button">Cancel</button>
+  </div>
 
   <!-- key -->
   <main id="key" hidden>
@@ -62,6 +74,8 @@
 
     <button class="launch" id="launch">Launch</button>
     <p class="hint" id="hint">Unlock the car to begin.</p>
+
+    <p class="car-line">Paired to car <b id="car-code"></b> · <button class="link" id="change-car">Change</button></p>
 
     <details class="garage">
       <summary>Garage</summary>

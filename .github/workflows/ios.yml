@@ -1,0 +1,72 @@
+# Builds the two native iOS apps:
+#   APEX 9R  (viewer, iPad/iPhone, landscape)
+#   APEX Key (controller, iPhone, portrait, native haptics + QR scanner)
+#
+# Set your VPS domain once:  Settings → Secrets and variables → Actions → Variables → APEX_DOMAIN
+# (e.g. apex.example.com), or type it when you run the workflow by hand.
+#
+# Output: unsigned .ipa files (Actions run → Artifacts). Install them with Sideloadly or
+# AltStore using your Apple ID. TestFlight/App Store needs an Apple Developer account.
+name: iOS apps
+
+on:
+  workflow_dispatch:
+    inputs:
+      domain:
+        description: "VPS domain the apps connect to (blank = use the APEX_DOMAIN variable)"
+        required: false
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    name: Build ${{ matrix.app }}
+    runs-on: macos-15
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [viewer, key]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Web bundle
+        env:
+          APEX_DOMAIN: ${{ inputs.domain || vars.APEX_DOMAIN }}
+        run: node scripts/build-apps.mjs ${{ matrix.app }}
+
+      - name: Generate Xcode project
+        working-directory: apps/${{ matrix.app }}
+        run: npx cap add ios
+
+      - name: Icon, orientation, permissions
+        run: node scripts/patch-ios.mjs ${{ matrix.app }}
+
+      - name: Build (unsigned)
+        working-directory: apps/${{ matrix.app }}/ios/App
+        run: |
+          set -o pipefail
+          xcodebuild -version
+          FAMILY="1,2"; [ "${{ matrix.app }}" = "key" ] && FAMILY="1"
+          xcodebuild -project App.xcodeproj -scheme App -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            TARGETED_DEVICE_FAMILY="$FAMILY" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            -quiet build
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/App.app Payload/
+          zip -qry "$GITHUB_WORKSPACE/APEX-${{ matrix.app }}-unsigned.ipa" Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: APEX-${{ matrix.app }}-ipa
+          path: APEX-${{ matrix.app }}-unsigned.ipa
+          retention-days: 30

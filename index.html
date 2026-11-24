@@ -7,6 +7,11 @@
   <meta name="description" content="An original 3D supercar you can unlock, start and rev from your phone." />
   <meta name="theme-color" content="#07080b" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2307080b'/%3E%3Cpath d='M7 22 16 8l9 14h-4l-5-8-5 8z' fill='%23fff'/%3E%3C/svg%3E" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icons/viewer-180.png" />
+  <meta name="apple-mobile-web-app-title" content="APEX 9R" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
@@ -17,6 +22,7 @@
       "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
   } }
   </script>
+  <script src="js/config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js" defer></script>
 </head>
@@ -87,6 +93,7 @@
         <p>Scan with your phone camera, or open<br><a id="remote-link" target="_blank" rel="noopener"></a></p>
         <p class="code-line">Code <b id="code">·····</b></p>
         <p class="muted" id="link-status">Starting link…</p>
+        <button class="link-btn small" id="new-code">New code</button>
       </div>
     </div>
   </aside>

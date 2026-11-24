@@ -2,26 +2,77 @@ import { createRemote } from './link.js';
 
 const $ = (s) => document.querySelector(s);
 const PAINTS = ['#1b55e0', '#ff5a1f', '#c8101e', '#d9d6cf', '#9fe01b', '#0d0e12', '#5a2bd6', '#a9b0bb'];
-const buzz = (p) => { try { navigator.vibrate && navigator.vibrate(p); } catch {} };
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+
+/* ---------- haptics: native Taptic Engine in the iOS app, vibrate() on Android ---------- */
+const NativeHaptics = window.Capacitor?.isNativePlatform?.() ? window.Capacitor.registerPlugin('Haptics') : null;
+function buzz(p) {
+  if (NativeHaptics) {
+    const ms = Array.isArray(p) ? Math.max(...p) : p;
+    if (Array.isArray(p)) NativeHaptics.notification({ type: 'WARNING' }).catch(() => {});
+    else NativeHaptics.impact({ style: ms >= 30 ? 'HEAVY' : ms >= 15 ? 'MEDIUM' : 'LIGHT' }).catch(() => {});
+    return;
+  }
+  try { navigator.vibrate && navigator.vibrate(p); } catch {}
+}
 
 /* ---------- pairing ---------- */
-const code = (location.hash.slice(1) || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-if (!code || code.length < 4) {
-  $('#pair').hidden = false;
+const clean = (c) => (c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+function codeFrom(text) {
+  // accepts a bare code or any URL ending in #CODE
+  const m = String(text).match(/#([A-Za-z0-9]{4,12})\s*$/);
+  return clean(m ? m[1] : text);
+}
+const code = clean(location.hash.slice(1)) || clean(store.get('apex-last-code'));
+if (!code || code.length < 4) showPair();
+else { store.set('apex-last-code', code); if (location.hash.slice(1) !== code) history.replaceState(null, '', '#' + code); start(code); }
+
+function connectTo(c) { store.set('apex-last-code', c); location.hash = c; location.reload(); }
+
+function showPair() {
+  $('#pair').hidden = false; $('#key').hidden = true;
   const inp = $('#pair-code');
-  try { inp.value = localStorage.getItem('apex-last-code') || ''; } catch {}
+  inp.value = store.get('apex-last-code') || '';
   $('#pair-form').addEventListener('submit', (e) => {
     e.preventDefault();
-    const c = inp.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (c.length >= 4) { location.hash = c; location.reload(); }
+    const c = clean(inp.value);
+    if (c.length >= 4) connectTo(c);
   });
-} else {
-  try { localStorage.setItem('apex-last-code', code); } catch {}
-  start(code);
+  $('#scan').addEventListener('click', scanQR);
+}
+
+/* in-app QR scanner (camera + jsQR), so the native app can pair without leaving */
+async function scanQR() {
+  const box = $('#scanner'), video = $('#scan-video'), msg = $('#scan-msg');
+  box.hidden = false; msg.textContent = 'Point at the QR code on the showroom screen';
+  let stream, stop = false;
+  const close = () => { stop = true; stream && stream.getTracks().forEach(t => t.stop()); box.hidden = true; };
+  $('#scan-close').onclick = close;
+  try {
+    if (!window.jsQR) await new Promise((ok, no) => { const s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js'; s.onload = ok; s.onerror = no; document.head.appendChild(s); });
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+  } catch (e) {
+    msg.textContent = 'Camera unavailable. Type the code instead.'; setTimeout(close, 1800); return;
+  }
+  video.srcObject = stream; video.setAttribute('playsinline', ''); await video.play();
+  const cv = document.createElement('canvas'), g = cv.getContext('2d', { willReadFrequently: true });
+  const tick = () => {
+    if (stop) return;
+    if (video.readyState >= 2) {
+      const w = 480, h = Math.round(480 * video.videoHeight / video.videoWidth) || 360;
+      cv.width = w; cv.height = h; g.drawImage(video, 0, 0, w, h);
+      const hit = window.jsQR(g.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: 'dontInvert' });
+      const c = hit && codeFrom(hit.data);
+      if (c && c.length >= 4) { buzz(30); close(); connectTo(c); return; }
+    }
+    requestAnimationFrame(tick);
+  };
+  tick();
 }
 
 function start(code) {
   $('#key').hidden = false;
+  $('#car-code').textContent = code;
   document.body.classList.add('disabled');
   const link = createRemote(code);
   const send = (c, v) => link.send({ t: 'cmd', c, v });
@@ -30,7 +81,7 @@ function start(code) {
   /* connection status */
   const conn = $('#conn');
   function setConn(state) {
-    const txt = { connecting: 'Connecting…', connected: 'Connected', nohost: 'Car not found', lost: 'Reconnecting…', error: 'Reconnecting…' }[state] || state;
+    const txt = { connecting: 'Connecting…', searching: 'Looking for the car…', connected: 'Connected', nohost: 'Car not found', lost: 'Reconnecting…', error: 'Reconnecting…' }[state] || state;
     conn.querySelector('span').textContent = txt;
     conn.className = 'conn ' + (state === 'connected' ? 'ok' : state === 'nohost' ? 'bad' : '');
   }
@@ -38,7 +89,9 @@ function start(code) {
   setInterval(() => {
     const ok = link.open && S;
     if (ok && !connected) { connected = true; document.body.classList.remove('disabled'); setConn('connected'); buzz(15); }
+    else if (!ok && connected) { connected = false; document.body.classList.add('disabled'); setConn('searching'); }
   }, 300);
+  $('#change-car').addEventListener('click', () => { history.replaceState(null, '', location.pathname); store.set('apex-last-code', ''); location.reload(); });
 
   /* incoming */
   link.on('message', (m) => {

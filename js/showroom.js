@@ -6,7 +6,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { createCar, DIM } from './car.js';
 import { EngineAudio } from './engine-audio.js';
-import { createHost, makeCode } from './link.js';
+import { createHost, makeCode, publicBase } from './link.js';
 
 const $ = (s) => document.querySelector(s);
 const params = new URLSearchParams(location.search);
@@ -466,18 +466,20 @@ function updateUI(dt) {
 /* =========================================================
    Phone link
    ========================================================= */
-let host = null;
-let code = params.get('code') || sessionStorage.getItem('apex-code') || makeCode();
+let host = null, newCodeBound = false;
+// The code is remembered, so a paired phone reconnects by itself next time.
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+let code = (params.get('code') || store.get('apex-code') || makeCode()).toUpperCase();
 function startLink() {
-  try { sessionStorage.setItem('apex-code', code); } catch {}
+  store.set('apex-code', code);
   host = createHost(code);
-  const base = location.href.split('#')[0].split('?')[0].replace(/index\.html$/, '').replace(/\/?$/, '/');
-  const url = `${base}remote.html#${code}`;
+  const url = `${publicBase()}remote.html#${code}`;
   $('#code').textContent = code;
   const a = $('#remote-link'); a.href = url; a.textContent = url.replace(/^https?:\/\//, '');
   drawQR(url);
   host.on('status', (s) => {
-    $('#link-status').textContent = s === 'ready' ? 'Waiting for your phone…' : s === 'local' ? 'Offline: same-browser key only.' : 'Reconnecting to the pairing server…';
+    if (S.remotes) return;
+    $('#link-status').textContent = s === 'ready' ? 'Waiting for your phone…' : s === 'local' ? 'Offline: same-browser key only.' : 'Reconnecting…';
   });
   host.on('count', (n) => {
     const was = S.remotes; S.remotes = n;
@@ -490,6 +492,7 @@ function startLink() {
   });
   host.on('hello', () => sendState(true));
   host.on('collision', () => { host.destroy(); code = makeCode(); startLink(); });
+  if (!newCodeBound) { newCodeBound = true; $('#new-code').addEventListener('click', () => { host.destroy(); code = makeCode(); startLink(); toast('New code. Paired keys must re-pair.'); }); }
   host.on('message', (m) => {
     if (!m || typeof m !== 'object') return;
     if (m.t === 'cmd') cmd(m.c, m.v);
@@ -597,4 +600,4 @@ $('#enter-mute').addEventListener('click', () => go(false));
 if (params.has('nosplash')) go(false);
 
 // expose for debugging / automated checks
-window.APEX = { S, cmd, car, camera, controls, scene, bloom, step, skipIntro() { intro = 1; introDone = true; } };
+window.APEX = { S, cmd, car, camera, controls, scene, bloom, step, get link() { return host; }, skipIntro() { intro = 1; introDone = true; } };

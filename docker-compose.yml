@@ -1,0 +1,22 @@
+# One command on the VPS:  DOMAIN=apex.example.com docker compose up -d --build
+# Caddy gets a free HTTPS certificate for DOMAIN automatically and proxies to the app
+# (including the WebSocket relay). Point the domain's A record at the VPS first.
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    expose: ["8080"]
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN, e.g. DOMAIN=apex.example.com}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [app]
+volumes:
+  caddy_data:
+  caddy_config:

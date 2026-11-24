@@ -2,15 +2,20 @@
 // live in Web Audio from rpm + throttle, so it reacts instantly and never loops.
 
 export class EngineAudio {
-  constructor() {
-    this.ctx = null;
+  /** Pass an OfflineAudioContext to render to a file instead of the speakers. */
+  constructor(ctx = null) {
+    this.ctx = ctx;
+    this.offline = !!ctx;
     this.enabled = false;
-    this.volume = 0.9;
+    this.volume = 0.85;
   }
 
   async enable() {
+    // iOS: play through the silent switch like a game/music app would
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
     if (!this.ctx) this._build();
-    if (this.ctx.state !== 'running') await this.ctx.resume();
+    else if (!this.master) this._build(this.ctx);
+    if (!this.offline && this.ctx.state !== 'running') await this.ctx.resume();
     this.enabled = true;
     this.master.gain.setTargetAtTime(this.volume, this.ctx.currentTime, 0.05);
   }
@@ -21,10 +26,10 @@ export class EngineAudio {
     this.master.gain.setTargetAtTime(0, this.ctx.currentTime, 0.05);
   }
 
-  _build() {
-    const ctx = (this.ctx = new (window.AudioContext || window.webkitAudioContext)());
+  _build(existing) {
+    const ctx = (this.ctx = existing || new (window.AudioContext || window.webkitAudioContext)());
     const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -14; comp.knee.value = 10; comp.ratio.value = 5;
+    comp.threshold.value = -4; comp.knee.value = 6; comp.ratio.value = 4; // safety limiter only, keep the dynamics
     comp.attack.value = 0.004; comp.release.value = 0.2;
     this.master = ctx.createGain();
     this.master.gain.value = 0;
@@ -121,9 +126,9 @@ export class EngineAudio {
   }
 
   /** Called every frame. rpm: crank rpm, load: 0..1 throttle, on: engine running */
-  update(rpm, load, on) {
+  update(rpm, load, on, at) {
     if (!this.ctx || !this.enabled) return;
-    const t = this.ctx.currentTime, k = 0.025;
+    const t = at ?? this.ctx.currentTime, k = 0.025;
     const crank = Math.max(rpm, 1) / 60;
     const cycle = crank / 2;
     this.oscA.frequency.setTargetAtTime(cycle, t, k);
@@ -137,11 +142,12 @@ export class EngineAudio {
     this.subGain.gain.setTargetAtTime(0.55 * (1 - r) + 0.1, t, k);
 
     const live = on ? 1 : 0;
-    const vol = live * (0.16 + 0.22 * r + 0.28 * load) * Math.min(1, rpm / 500);
+    // the harder you rev, the louder it gets: ~20 dB from idle to full-throttle redline
+    const vol = live * (0.055 + 0.32 * Math.pow(r, 1.3) + 0.3 * load * (0.35 + 0.65 * r)) * Math.min(1, rpm / 500);
     this.engineGain.gain.setTargetAtTime(vol, t, 0.03);
 
     this.intake.frequency.setTargetAtTime(500 + crank * 9, t, k);
-    this.intakeGain.gain.setTargetAtTime(live * load * (0.05 + 0.25 * r), t, k);
+    this.intakeGain.gain.setTargetAtTime(live * load * (0.02 + 0.3 * r * r), t, k);
 
     this.screamFilter.frequency.setTargetAtTime(crank * 6, t, k);
     const s = Math.max(0, (r - 0.55) / 0.45);
@@ -149,16 +155,16 @@ export class EngineAudio {
   }
 
   /** Exhaust pop / crackle */
-  pop(strength = 1) {
+  pop(strength = 1, at) {
     if (!this.ctx || !this.enabled) return;
-    const ctx = this.ctx, t = ctx.currentTime + Math.random() * 0.01;
+    const ctx = this.ctx, t = (at ?? ctx.currentTime) + Math.random() * 0.01;
     const src = ctx.createBufferSource(); src.buffer = this.noiseBuf;
     src.playbackRate.value = 0.6 + Math.random() * 0.6;
     const f = ctx.createBiquadFilter(); f.type = 'bandpass';
     f.frequency.value = 500 + Math.random() * 1600; f.Q.value = 0.8;
     const g = ctx.createGain();
     g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(0.9 * strength, t + 0.003);
+    g.gain.linearRampToValueAtTime(0.7 * strength, t + 0.003);
     g.gain.exponentialRampToValueAtTime(0.001, t + 0.05 + Math.random() * 0.06);
     // low thump
     const o = ctx.createOscillator(); o.type = 'sine';
@@ -171,9 +177,9 @@ export class EngineAudio {
   }
 
   /** Starter motor whine + chug, `dur` seconds */
-  starter(dur = 0.9) {
+  starter(dur = 0.9, at) {
     if (!this.ctx || !this.enabled) return;
-    const ctx = this.ctx, t = ctx.currentTime;
+    const ctx = this.ctx, t = at ?? ctx.currentTime;
     const o = ctx.createOscillator(); o.type = 'sawtooth';
     o.frequency.setValueAtTime(90, t); o.frequency.linearRampToValueAtTime(150, t + dur);
     const lfo = ctx.createOscillator(); lfo.frequency.setValueAtTime(7, t); lfo.frequency.linearRampToValueAtTime(13, t + dur);

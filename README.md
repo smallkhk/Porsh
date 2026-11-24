@@ -1,83 +1,152 @@
 # APEX 9R — a supercar you start with your phone
 
-A 3D showroom for an original concept car, designed entirely in code. Open the
-showroom on a laptop, scan the QR code with your phone, and the phone becomes
-the key: unlock it, open the scissor doors, switch the lights on, hold to start
-the engine, rev it, and do a full launch run.
+A 3D showroom for an original concept car, designed entirely in code. Show it
+on an iPad or laptop and use your iPhone as the key: unlock it, open the
+scissor doors, switch the lights on, hold to start the engine, rev it, and do
+a full launch run.
 
-No 3D model files, no audio samples, no backend, no API keys.
+There are three ways to run it:
 
-## What's in it
+| | What | Needs |
+|---|---|---|
+| **Your VPS** (recommended) | Your own domain, your own realtime relay | Any Linux VPS + a domain |
+| **iOS apps** | "APEX 9R" viewer for iPad + "APEX Key" for iPhone | GitHub Actions (built for you) |
+| Static host | Vercel / Netlify / GitHub Pages | Nothing, but uses a public pairing service |
 
-**Desktop showroom (`index.html`)**
-- A procedural supercar built with Three.js. The body is a loft of about 300
-  cross-sections generated from profile curves. The doors and glass come out
-  of the same vertex grid, so the panels line up and the doors hinge open
-  (scissor style) to show the cabin.
-- Studio lighting with a custom softbox environment, a clearcoat paint
-  material, bloom, and headlights that light the floor with visible beams.
-- A full-width LED light bar with welcome and goodbye sweep animations,
-  hazard flashes, and brake lights.
-- Exhaust flames with pops and crackles when you lift off the throttle and
-  when it changes gear.
-- Launch control with a 3-2-1 countdown, six gears, a 0–100 km/h timer, and
-  a moving floor with speed streaks so the car looks like it's driving.
-- A live tachometer, Film mode (letterbox with an auto-orbiting camera),
-  paint, wheel colour, wing and stripe options.
-- Keyboard controls: `U` unlock/lock, `D` doors, `L` lights, `E` engine,
-  `Space`/`W` throttle, `X` launch, `H` horn, `F` film mode.
+---
 
-**Engine sound (`js/engine-audio.js`)**
-- A flat-six sound generated live with Web Audio: a custom harmonic waveform
-  at the engine's firing frequency, distortion, an rpm-dependent filter,
-  intake noise and a high-rpm scream layer.
-- Starter motor crank, rev limiter bounce, backfire pops, key-fob chirps,
-  door thuds and a horn.
+## 1. Run it on your VPS
 
-**Phone key (`remote.html`)**
-- Unlock, Lock, Doors and Lights buttons.
-- An engine START STOP button you hold down to start or stop.
-- A throttle pad: hold it to rev, slide your finger up for more.
-- Race-style shift lights, a live rpm/speed/gear readout, and a Launch
-  button.
-- A Garage section: change the paint, toggle the wing or stripe, sound the
-  horn.
-- Haptic feedback (on Android) on the limiter, gear shifts and refused
-  actions. It also keeps the screen awake.
+The VPS runs `server/server.js`. It serves the site and also relays messages
+between the iPad and the iPhone over a WebSocket. That's more reliable than
+peer-to-peer: it works on mobile data and through strict networks, with no
+third-party service involved.
 
-## How the phone connects
+**Step 1 — DNS.** Create an `A` record for your domain (e.g.
+`apex.example.com`) pointing to your VPS's IP address.
 
-`js/link.js` uses WebRTC through [PeerJS](https://peerjs.com) and its free
-public signalling server, so there's no server of your own to run. The
-showroom makes a 5-letter room code and shows it as a QR code. The phone
-connects peer-to-peer.
-
-It also uses a `BroadcastChannel` fallback, so two tabs in the same browser
-work even offline. That's handy for testing.
-
-> If the phone can't connect on mobile data, put both devices on the same
-> Wi-Fi. Some carrier networks block direct peer-to-peer connections.
-
-## Run it locally
-
-It's a static site, so there's nothing to build:
+**Step 2 — Start it.** Docker gives you HTTPS automatically through Caddy:
 
 ```bash
-npx serve .            # or: python3 -m http.server
+git clone <this repo> apex9r && cd apex9r
+DOMAIN=apex.example.com docker compose up -d --build
 ```
 
-Open `http://localhost:3000` on the computer. To test without a phone, open
-`/remote.html#CODE` in a second tab.
+Then open `https://apex.example.com`.
 
-## Deploy (Vercel, Netlify, GitHub Pages…)
+To update later: `git pull && DOMAIN=apex.example.com docker compose up -d --build`.
 
-1. Import this repo into Vercel.
-2. Set **Framework preset** to *Other*. Leave the build command empty and
-   the output directory as `.`.
-3. Deploy, open the URL on your laptop, and scan the QR code with your phone.
+**Without Docker** (Node 20+ behind your existing nginx):
 
-Phones need HTTPS for haptics and wake lock. Every host above gives you HTTPS
-automatically.
+```bash
+npm ci --omit=dev
+PORT=8080 node server/server.js          # or: deploy/apex9r.service for systemd
+```
+
+Then use `deploy/nginx.conf` for the proxy (it includes the WebSocket upgrade)
+and `certbot --nginx` for HTTPS.
+
+**Small VPS is fine.** The server only serves files and forwards tiny
+messages; the 3D rendering happens on the iPad. 512 MB RAM is plenty.
+
+**Endpoints:** `/` showroom · `/remote.html` key · `/relay` WebSocket · `/healthz`.
+
+## 2. Native iOS apps (built by GitHub Actions)
+
+`.github/workflows/ios.yml` builds two apps with
+[Capacitor](https://capacitorjs.com):
+
+- **APEX 9R** (viewer): landscape, full screen, for the iPad.
+- **APEX Key** (controller): portrait, for the iPhone. It has real Taptic
+  Engine haptics, an in-app QR scanner, and remembers your car.
+
+**To build them:**
+
+1. In GitHub, go to **Settings → Secrets and variables → Actions →
+   Variables** and add `APEX_DOMAIN` = `apex.example.com`. The apps connect
+   to your VPS's relay, so deploy the VPS first.
+2. Go to **Actions → iOS apps → Run workflow**. Pushing a `v*` tag also
+   triggers it.
+3. Download `APEX-viewer-ipa` and `APEX-key-ipa` from the run's
+   **Artifacts**.
+
+**To install them:**
+- **Free:** the `.ipa` files are unsigned. Install them with
+  [Sideloadly](https://sideloadly.io) or AltStore using your normal Apple ID.
+  With a free Apple ID, the apps must be re-signed every 7 days.
+- **Paid:** with an Apple Developer account ($99/yr), they can go to
+  TestFlight instead and last 90 days per build. The workflow will need your
+  signing certificate added as secrets for that.
+
+**No-install alternative:** open your domain in Safari on each device and tap
+**Share → Add to Home Screen**. Both pages are set up as full-screen web apps
+with their own icons.
+
+Note: macOS GitHub runners use more of your Actions minutes than Linux ones
+(10× on private repos), so the workflow only runs when you start it.
+
+## Pairing
+
+1. Open the showroom on the iPad. The **Key** panel shows a QR code and a
+   5-letter code.
+2. On the iPhone, scan the QR code (with the camera or inside APEX Key), or
+   type the code.
+3. That's it. Both sides remember the pairing, so next time the key
+   reconnects by itself. Use **New code** in the showroom to revoke old keys.
+
+## Features
+
+**The car**
+- A procedural loft body: about 300 cross-sections built from profile curves.
+  The doors and glass come from the same vertex grid, so the panels line up.
+- Scissor doors that open to show the cabin, with courtesy lighting: an
+  interior glow and APEX logo puddle lamps on the floor.
+- Headlights with DRLs and low and high beams that light up the floor.
+- A full-width LED light bar with welcome and goodbye sweeps, hazard
+  flashes, and brake lights.
+- Exhaust flames with pops and crackles when you lift off and when it changes
+  gear. Paint, wheel colour, wing and stripe options.
+
+**The sound**
+The flat-six sound is generated live with Web Audio, not recorded, so it
+responds instantly and never loops:
+- Pitch follows rpm exactly.
+- Loudness rises about 20 dB from idle to redline, plus about 10 dB more
+  under throttle.
+- Also: starter crank, rev-limiter bounce, backfire pops, a high-rpm scream
+  layer, key-fob chirps, door thuds and a horn.
+- On iPhone and iPad it plays even when the silent switch is on.
+
+**Driving**
+Launch control with a countdown, six gears and a 0–100 km/h timer (about
+3.0 s). The floor moves underneath so it looks like the car is driving.
+There's a live tachometer, race shift lights on the phone, and Film mode for
+recording.
+
+**Desktop keys:** `U` unlock/lock · `D` doors · `L` lights · `E` engine ·
+`Space` throttle · `X` launch · `H` horn · `F` film mode.
+
+## Local development
+
+```bash
+npm install
+npm start               # http://localhost:8080 (site + relay)
+```
+
+To test without a phone, open `/remote.html#CODE` in a second tab.
+
+## Project layout
+
+```
+index.html, remote.html     showroom + key pages
+js/car.js                   the procedural car
+js/engine-audio.js          engine synthesizer
+js/showroom.js, js/remote.js
+js/link.js                  relay → PeerJS → BroadcastChannel transports
+server/server.js            static files + WebSocket relay
+scripts/                    iOS app bundling + Xcode project patching
+deploy/                     Caddy, nginx, systemd
+```
 
 ---
 

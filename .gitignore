@@ -1,0 +1,4 @@
+node_modules/
+apps/
+*.ipa
+.DS_Store

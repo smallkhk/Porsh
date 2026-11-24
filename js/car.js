@@ -482,6 +482,16 @@ export function createCar() {
     }
   }
 
+  /* courtesy lighting: cabin glow + logo puddle lamps when the doors open */
+  const cabinLight = new THREE.PointLight(0xffd9a8, 0, 2.6, 1.6);
+  cabinLight.position.set(-0.1, 1.0, 0); chassis.add(cabinLight);
+  const puddleMat = new THREE.MeshBasicMaterial({ map: puddleTexture(), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+  for (const s of [1, -1]) {
+    const p = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.1), puddleMat);
+    p.rotation.x = -Math.PI / 2; p.rotation.z = s > 0 ? 0 : Math.PI;
+    p.position.set(0.25, 0.006, s * 1.55); root.add(p);
+  }
+
   /* ---------- API ---------- */
   const state = {
     doorTarget: 0, door: 0,
@@ -524,6 +534,9 @@ export function createCar() {
         d.pivot.rotation.z = -e * 1.05;       // up
         d.pivot.rotation.y = d.side * e * 0.28; // out
       }
+      cabinLight.intensity = e * 2.2;
+      puddleMat.opacity = Math.min(1, e * 1.3);
+
       // DRL & beams
       state.drl += (state.drlTarget - state.drl) * (1 - Math.exp(-dt * 6));
       const lvlT = state.lights;
@@ -584,6 +597,20 @@ export function createCar() {
     },
   };
   return api;
+}
+
+function puddleTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d');
+  const gr = g.createRadialGradient(128, 128, 10, 128, 128, 120);
+  gr.addColorStop(0, 'rgba(255,240,220,0.55)'); gr.addColorStop(0.55, 'rgba(255,230,200,0.22)'); gr.addColorStop(1, 'rgba(255,230,200,0)');
+  g.fillStyle = gr; g.beginPath(); g.arc(128, 128, 120, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = 'rgba(255,255,255,0.8)'; g.lineWidth = 3; g.beginPath(); g.arc(128, 128, 78, 0, Math.PI * 2); g.stroke();
+  g.fillStyle = 'rgba(255,255,255,0.95)'; g.font = '800 30px Inter, system-ui, sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('APEX', 128, 122);
+  g.font = '600 13px Inter, system-ui, sans-serif'; g.fillStyle = 'rgba(255,255,255,0.7)'; g.fillText('9 R', 128, 150);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  return t;
 }
 
 function badgeTexture() {

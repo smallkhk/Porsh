@@ -1,0 +1,14 @@
+{
+  "name": "APEX 9R Key",
+  "short_name": "APEX Key",
+  "start_url": "./remote.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0b10",
+  "theme_color": "#0a0b10",
+  "icons": [
+    { "src": "icons/key-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/key-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
