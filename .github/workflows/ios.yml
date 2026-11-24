@@ -30,19 +30,21 @@ jobs:
       - name: Build for devices (unsigned)
         working-directory: ios
         run: |
-          set -o pipefail
           mkdir -p "$GITHUB_WORKSPACE/out"
+          failed=0
           for s in APEXViewer APEXKey; do
             echo "::group::$s"
-            xcodebuild -project APEX.xcodeproj -scheme "$s" -configuration Release \
+            if ! xcodebuild -project APEX.xcodeproj -scheme "$s" -configuration Release \
               -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build/device \
-              CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" -quiet build
+              CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" -quiet build 2>&1 | grep -E "error|warning: unre|BUILD" ; then :; fi
+            if [ ! -d "build/device/Build/Products/Release-iphoneos/$s.app" ]; then failed=1; echo "::endgroup::"; continue; fi
             rm -rf Payload && mkdir Payload
             cp -R "build/device/Build/Products/Release-iphoneos/$s.app" Payload/
             zip -qry "$GITHUB_WORKSPACE/out/$s-unsigned.ipa" Payload
             echo "::endgroup::"
           done
           ls -la "$GITHUB_WORKSPACE/out"
+          exit $failed
 
       - uses: actions/upload-artifact@v4
         with:

@@ -60,7 +60,7 @@ final class Showroom: NSObject, ObservableObject {
     private var streaks: [SCNNode] = []
     private let streakMat = SCNMaterial()
 
-    init() {
+    override init() {
         let d = UserDefaults.standard
         server = d.string(forKey: "server") ?? Server.defaultHost
         code = d.string(forKey: "carCode") ?? makeCode()
