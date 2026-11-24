@@ -1,4 +1,5 @@
 import AVFoundation
+import UIKit
 
 // Procedural flat-six, synthesized sample-by-sample on the audio thread.
 // Same recipe as the web version (js/engine-audio.js):
@@ -78,6 +79,12 @@ final class EngineSynth {
         NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
             self?.restart()
         }
+        NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.start()
+        }
+        NotificationCenter.default.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.rebuild()
+        }
         NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] n in
             if let v = n.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt, v == AVAudioSession.InterruptionType.ended.rawValue {
                 self?.restart()
@@ -112,37 +119,104 @@ final class EngineSynth {
 
     // MARK: lifecycle
 
-    func start() {
-        guard !running else { return }
-        let session = AVAudioSession.sharedInstance()
-        // .playback: plays even with the silent switch on, like a game would
-        try? session.setCategory(.playback, mode: .default, options: [])
-        try? session.setActive(true)
-        let out = engine.outputNode.outputFormat(forBus: 0)
-        sr = Float(out.sampleRate > 0 ? out.sampleRate : 48000)
-        guard let fmt = AVAudioFormat(standardFormatWithSampleRate: Double(sr), channels: 2) else { return }
-        if source == nil {
-            let src = AVAudioSourceNode(format: fmt) { [unowned self] _, _, frameCount, abl -> OSStatus in
-                let bufs = UnsafeMutableAudioBufferListPointer(abl)
-                guard let l = bufs[0].mData?.assumingMemoryBound(to: Float.self) else { return noErr }
-                let r = bufs.count > 1 ? bufs[1].mData?.assumingMemoryBound(to: Float.self) : nil
-                self.render(l, r, Int(frameCount))
-                return noErr
-            }
-            engine.attach(src)
-            engine.connect(src, to: engine.mainMixerNode, format: fmt)
-            source = src
+    /// Last audio error, shown on screen so problems aren't silent.
+    private(set) var lastError: String?
+    var isRunning: Bool { engine.isRunning }
+
+    private func attachSource(_ fmt: AVAudioFormat) {
+        let src = AVAudioSourceNode(format: fmt) { [unowned self] _, _, frameCount, abl -> OSStatus in
+            let bufs = UnsafeMutableAudioBufferListPointer(abl)
+            guard let l = bufs[0].mData?.assumingMemoryBound(to: Float.self) else { return noErr }
+            let r = bufs.count > 1 ? bufs[1].mData?.assumingMemoryBound(to: Float.self) : nil
+            self.render(l, r, Int(frameCount))
+            return noErr
         }
-        do { try engine.start(); running = true } catch { running = false }
+        engine.attach(src)
+        engine.connect(src, to: engine.mainMixerNode, format: fmt)
+        engine.mainMixerNode.outputVolume = 1
+        source = src
+    }
+
+    /// Safe to call any time; retries until the audio engine is really running.
+    @discardableResult
+    func start() -> Bool {
+        if engine.isRunning { running = true; return true }
+        let session = AVAudioSession.sharedInstance()
+        do {
+            // .playback: plays even with the silent switch on, like a game would
+            try session.setCategory(.playback, mode: .default, options: [])
+            try session.setActive(true)
+        } catch {
+            lastError = "Audio session: \(error.localizedDescription)"
+        }
+        if source == nil {
+            let hw = session.sampleRate
+            sr = Float(hw > 0 ? hw : 48000)
+            guard let fmt = AVAudioFormat(standardFormatWithSampleRate: Double(sr), channels: 2) else { return false }
+            attachSource(fmt)
+        }
+        engine.prepare()
+        do {
+            try engine.start()
+            running = true
+            lastError = nil
+        } catch {
+            running = false
+            lastError = "Audio engine: \(error.localizedDescription)"
+        }
+        return running
     }
 
     func stop() { engine.pause(); running = false }
 
     private func restart() {
-        guard running else { return }
-        running = false
         engine.stop()
+        running = false
         start()
+    }
+
+    /// Rebuilds the graph from scratch (after iOS resets media services).
+    private func rebuild() {
+        engine.stop()
+        if let s = source { engine.detach(s) }
+        source = nil
+        running = false
+        start()
+    }
+
+    /// Renders the engine offline (no speakers) and reports loudness per rpm.
+    /// Used by the CI self-test to prove the DSP makes sound.
+    static func selfTest() -> String {
+        let s = EngineSynth()
+        return s.runOfflineTest()
+    }
+
+    private func runOfflineTest() -> String {
+        sr = 48000
+        guard let fmt = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2) else { return "no format" }
+        do { try engine.enableManualRenderingMode(.offline, format: fmt, maximumFrameCount: 4096) }
+        catch { return "manual rendering unavailable: \(error.localizedDescription)" }
+        attachSource(fmt)
+        do { try engine.start() } catch { return "engine start failed: \(error.localizedDescription)" }
+        guard let buf = AVAudioPCMBuffer(pcmFormat: engine.manualRenderingFormat, frameCapacity: 4096) else { return "no buffer" }
+        var out: [String] = []
+        for (r, l) in [(1000, 0), (3000, 1), (6000, 1), (9000, 1)] {
+            rpm = Float(r); load = Float(l); on = true
+            var sum = 0.0, n = 0, nan = false
+            for block in 0..<36 {
+                guard (try? engine.renderOffline(4096, to: buf)) == .success, let d = buf.floatChannelData?[0] else { continue }
+                if block < 18 { continue } // let it settle
+                for i in 0..<Int(buf.frameLength) {
+                    let v = Double(d[i])
+                    if v.isNaN { nan = true }
+                    sum += v * v; n += 1
+                }
+            }
+            let rms = n > 0 ? (sum / Double(n)).squareRoot() : 0
+            out.append(nan ? "\(r)rpm NaN!" : String(format: "%drpm load%d %.1f dB", r, l, 20 * log10(max(rms, 1e-9))))
+        }
+        engine.stop()
+        return out.joined(separator: " | ")
     }
 
     // MARK: one-shots (main thread)

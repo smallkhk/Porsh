@@ -135,7 +135,9 @@ struct ShowroomView: View {
             Spacer()
             HStack(spacing: 8) {
                 chip(room.film ? "Exit film" : "Film mode", on: room.film) { room.film.toggle() }
-                chip(room.soundOn ? "Sound on" : "Sound off", on: room.soundOn) { room.setSound(!room.soundOn) }
+                chip(!room.soundOn ? "Sound off" : room.audioOK ? "Sound on" : "Sound ⚠︎ tap", on: room.soundOn && room.audioOK) {
+                    if room.soundOn && !room.audioOK { room.setSound(true) } else { room.setSound(!room.soundOn) }
+                }
             }
         }
         .padding(.horizontal, 28).padding(.top, 18)

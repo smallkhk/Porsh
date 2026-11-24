@@ -25,6 +25,7 @@ final class Showroom: NSObject, ObservableObject {
     @Published var soundOn = true
     @Published var film = false
     @Published var showPair = true
+    @Published var audioOK = true
 
     let scene = SCNScene()
     let cameraNode = SCNNode()
@@ -68,6 +69,12 @@ final class Showroom: NSObject, ObservableObject {
         code = c
         d.set(c, forKey: "carCode")
         super.init()
+        if ProcessInfo.processInfo.arguments.contains("-audioTest") {
+            // CI self-test: render the engine offline, print loudness per rpm, quit
+            print("AUDIOTEST: " + EngineSynth.selfTest())
+            fflush(stdout)
+            exit(0)
+        }
         buildScene()
         startLink()
         setStatus()
@@ -501,10 +508,24 @@ final class Showroom: NSObject, ObservableObject {
     func setSound(_ on: Bool) {
         soundOn = on
         synth.volume = on ? 0.85 : 0
+        if on { synth.start() }
+    }
+
+    private var audioCheckT = 0.0
+    private var audioErrorShown: String?
+    /// Keeps the audio engine alive: retries if iOS refused to start it or stopped it.
+    private func checkAudio(_ dt: Double) {
+        audioCheckT += dt
+        guard audioCheckT > 1 else { return }
+        audioCheckT = 0
+        if soundOn && !synth.isRunning { synth.start() }
+        let ok = synth.isRunning
+        if ok != audioOK { audioOK = ok }
+        if let e = synth.lastError, !ok, e != audioErrorShown { audioErrorShown = e; showToast(e) }
     }
 
     func setLocalThrottle(_ v: Double) { localHeld = v > 0 }
-    func userInteracted() { idleT = 0 }
+    func userInteracted() { idleT = 0; if soundOn && !synth.isRunning { synth.start() } }
 
     // MARK: - Frame loop
 
@@ -514,6 +535,7 @@ final class Showroom: NSObject, ObservableObject {
         lastTick = now
 
         step(dt)
+        checkAudio(dt)
         synth.rpm = Float(rpm)
         synth.load = Float(thr)
         synth.on = running || starting
